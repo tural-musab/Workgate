@@ -4,6 +4,15 @@ import { createQueueAdapter, createStorageAdapter } from "@workgate/db";
 
 import { installRuntimeForTests, resetRuntimeForTests, createTask, getRunDetail, saveGitHubSettings, approveRun } from "@/lib/app-service";
 
+async function configureGitHubApp(allowedRepos: string[] = ["owner/repo"]) {
+  await saveGitHubSettings({
+    appId: "123456",
+    installationId: "654321",
+    privateKeyPem: "-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----",
+    allowedRepos
+  });
+}
+
 function createMockGithub() {
   return {
     async fetchRepositoryContext({ targetRepo, targetBranch }: { targetRepo: string; targetBranch: string }) {
@@ -72,9 +81,10 @@ function installMemoryRuntime() {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   process.env.WORKGATE_MOCK_MODE = "true";
   installMemoryRuntime();
+  await configureGitHubApp();
 });
 
 afterEach(async () => {
@@ -84,6 +94,7 @@ afterEach(async () => {
 describe("run orchestration", () => {
   it("creates a run and emits review artefacts", async () => {
     const detail = await createTask({
+      teamId: "team_default",
       title: "Fix build cache mismatch",
       goal: "Repair the build cache metadata path and produce the documentation needed for approval.",
       taskType: "bugfix",
@@ -110,6 +121,7 @@ describe("run orchestration", () => {
 
   it("approves a run and creates a draft pull request", async () => {
     const detail = await createTask({
+      teamId: "team_default",
       title: "Fix notification drift",
       goal: "Adjust notification output and prepare a draft pull request after approval.",
       taskType: "bugfix",
@@ -128,11 +140,6 @@ describe("run orchestration", () => {
       (run): run is NonNullable<typeof run> => Boolean(run && run.run.status === "pending_human")
     );
 
-    await saveGitHubSettings({
-      token: "ghp_test_token",
-      allowedRepos: ["owner/repo"]
-    });
-
     const result = await approveRun(detail.run.id, "operator");
     const approved = await getRunDetail(detail.run.id);
 
@@ -143,6 +150,7 @@ describe("run orchestration", () => {
 
   it("blocks approval when the repository is not allowlisted", async () => {
     const detail = await createTask({
+      teamId: "team_default",
       title: "Attempt disallowed repo write",
       goal: "Verify that an unallowlisted repository cannot be pushed during approval.",
       taskType: "bugfix",
@@ -161,16 +169,14 @@ describe("run orchestration", () => {
       (run): run is NonNullable<typeof run> => Boolean(run && run.run.status === "pending_human")
     );
 
-    await saveGitHubSettings({
-      token: "ghp_test_token",
-      allowedRepos: ["someone-else/repo"]
-    });
+    await configureGitHubApp(["someone-else/repo"]);
 
     await expect(approveRun(detail.run.id, "operator")).rejects.toThrow("not allowlisted");
   });
 
   it("approves an RFP workflow without requiring GitHub writes", async () => {
     const detail = await createTask({
+      teamId: "team_default",
       title: "Prepare renewal response",
       goal: "Draft and review a response pack for a renewal RFP and stop at human approval before external delivery.",
       taskType: "research",

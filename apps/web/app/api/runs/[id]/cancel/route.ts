@@ -11,7 +11,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
 
   const { id } = await params;
   try {
-    await cancelRun(id);
+    await cancelRun(id, session);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Action failed." }, { status: 400 });

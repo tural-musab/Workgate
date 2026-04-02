@@ -4,18 +4,21 @@ import Link from "next/link";
 
 import { Bot, CheckCheck, FolderGit2, Gauge, LogOut, Settings2 } from "lucide-react";
 
+import type { Session } from "@workgate/shared";
+
 import { cn } from "@/lib/cn";
 
 import { LanguageSwitcher } from "./language-switcher";
+import { TeamSwitcher } from "./team-switcher";
 import { useLocale } from "./locale-provider";
 
 export function AppShell({
   children,
-  username,
+  session,
   runtime
 }: {
   children: React.ReactNode;
-  username: string;
+  session: Session;
   runtime: { storageMode: string; queueMode: string };
 }) {
   const { messages } = useLocale();
@@ -81,11 +84,15 @@ export function AppShell({
                 </div>
               </div>
             </div>
+
+            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.035] px-5 py-5">
+              <TeamSwitcher session={session} />
+            </div>
           </div>
 
           <div className="space-y-4 pb-4">
             <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{messages.common.signedInAs}</div>
-            <div className="text-sm text-slate-200">{username}</div>
+            <div className="text-sm text-slate-200">{session.displayName}</div>
             <form action="/api/auth/logout" method="post">
               <button className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:border-white/20 hover:bg-white/5">
                 <LogOut className="h-4 w-4" />
@@ -104,6 +111,7 @@ export function AppShell({
                   {messages.common.brand}
                 </div>
                 <div className="text-sm text-slate-300">{messages.appShell.title}</div>
+                <div className="text-xs text-slate-500">{session.activeTeam?.name ?? "No active team"}</div>
               </div>
               <LanguageSwitcher />
             </div>

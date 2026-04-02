@@ -13,7 +13,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const payload = await request.json().catch(() => ({}));
-    const detail = await retryRun(id, payload);
+    const detail = await retryRun(id, payload, session);
     return NextResponse.json({ runId: detail.run.id, taskId: detail.task.id });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Action failed." }, { status: 400 });

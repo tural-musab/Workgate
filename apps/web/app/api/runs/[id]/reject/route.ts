@@ -12,10 +12,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   try {
     const body = (await request.json().catch(() => ({}))) as { notes?: string };
-    const result = await rejectRun(id, session.username, body.notes ?? null);
+    const result = await rejectRun(id, session.displayName, body.notes ?? null, session);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Reject failed." }, { status: 400 });
   }
 }
-

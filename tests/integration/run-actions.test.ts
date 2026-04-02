@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createQueueAdapter, createStorageAdapter, type QueueAdapter, type StorageAdapter } from "@workgate/db";
 
-import { cancelRun, createTask, deleteRun, getRunDetail, installRuntimeForTests, resetRuntimeForTests, retryRun } from "@/lib/app-service";
+import { cancelRun, createTask, deleteRun, getRunDetail, installRuntimeForTests, resetRuntimeForTests, retryRun, saveGitHubSettings } from "@/lib/app-service";
+
+async function configureGitHubApp(allowedRepos: string[] = ["owner/repo"]) {
+  await saveGitHubSettings({
+    appId: "123456",
+    installationId: "654321",
+    privateKeyPem: "-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----",
+    allowedRepos
+  });
+}
 
 function createMockGithub() {
   return {
@@ -98,8 +107,10 @@ describe("run actions", () => {
     const storage = createStorageAdapter(undefined);
     const queue = createManualQueue();
     installRuntime(storage, queue.adapter);
+    await configureGitHubApp();
 
     const detail = await createTask({
+      teamId: "team_default",
       title: "Cancel me before execution",
       goal: "Queue a run and cancel it before the worker starts processing any node.",
       taskType: "ops",
@@ -124,8 +135,10 @@ describe("run actions", () => {
   it("deletes a terminal run and its associated records", async () => {
     const storage = createStorageAdapter(undefined);
     installRuntime(storage);
+    await configureGitHubApp();
 
     const detail = await createTask({
+      teamId: "team_default",
       title: "Delete after cancel",
       goal: "Reach approval, cancel the run, and then remove it from the run ledger.",
       taskType: "bugfix",
@@ -153,8 +166,10 @@ describe("run actions", () => {
   it("creates a fresh run for a full retry", async () => {
     const storage = createStorageAdapter(undefined);
     installRuntime(storage);
+    await configureGitHubApp();
 
     const original = await createTask({
+      teamId: "team_default",
       title: "Retry full pipeline",
       goal: "Finish one run, then create a brand-new run that restarts the whole pipeline.",
       taskType: "feature",
@@ -202,8 +217,10 @@ describe("run actions", () => {
       }
     }) as StorageAdapter;
     installRuntime(storage);
+    await configureGitHubApp();
 
     const failedRun = await createTask({
+      teamId: "team_default",
       title: "Retry failed reviewer stage",
       goal: "Fail during reviewer execution, then resume only the missing stages in a new run.",
       taskType: "bugfix",

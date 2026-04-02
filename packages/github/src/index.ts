@@ -4,10 +4,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
-import { Octokit } from "octokit";
+import { App, Octokit } from "octokit";
 import slugify from "slugify";
 
-import type { ArtifactRecord, EngineerFileOperation, GitHubRepoConnection } from "@workgate/shared";
+import type { ArtifactRecord, EngineerFileOperation, GitHubAppSettings, GitHubRepoConnection } from "@workgate/shared";
 
 const execFileAsync = promisify(execFile);
 
@@ -53,6 +53,44 @@ function parseRepoSlug(targetRepo: string) {
 
 function repositoryIsAllowed(targetRepo: string, allowlist: GitHubRepoConnection[]) {
   return allowlist.some((repo) => repo.isAllowed && `${repo.owner}/${repo.repo}` === targetRepo);
+}
+
+function parseInstallationId(value: string) {
+  const installationId = Number(value);
+  if (!Number.isInteger(installationId) || installationId <= 0) {
+    throw new Error("GitHub App installation ID must be a positive integer.");
+  }
+  return installationId;
+}
+
+async function createInstallationOctokit(app: GitHubAppSettings) {
+  const githubApp = new App({
+    appId: app.appId,
+    privateKey: app.privateKeyPem
+  });
+  return githubApp.getInstallationOctokit(parseInstallationId(app.installationId));
+}
+
+async function createInstallationToken(app: GitHubAppSettings) {
+  const githubApp = new App({
+    appId: app.appId,
+    privateKey: app.privateKeyPem
+  });
+  const auth = (await githubApp.octokit.auth({
+    type: "installation",
+    installationId: parseInstallationId(app.installationId)
+  })) as { token?: string };
+  if (typeof auth.token !== "string") {
+    throw new Error("GitHub App installation token could not be resolved.");
+  }
+  return auth.token;
+}
+
+async function createOctokitClient(input: { token: string | null | undefined; app: GitHubAppSettings | null | undefined }) {
+  if (input.app) {
+    return createInstallationOctokit(input.app);
+  }
+  return new Octokit(input.token ? { auth: input.token } : undefined);
 }
 
 async function runGit(args: string[], cwd?: string) {
@@ -275,6 +313,7 @@ export class GitHubExecutionService {
     targetRepo: string;
     targetBranch: string;
     token?: string | null;
+    app?: GitHubAppSettings | null;
     allowlist: GitHubRepoConnection[];
   }): Promise<RepositoryContextResult> {
     if (!repositoryIsAllowed(input.targetRepo, input.allowlist)) {
@@ -282,7 +321,7 @@ export class GitHubExecutionService {
     }
 
     const { owner, repo } = parseRepoSlug(input.targetRepo);
-    const octokit = new Octokit(input.token ? { auth: input.token } : undefined);
+    const octokit = await createOctokitClient({ token: input.token, app: input.app });
 
     const repoResponse = await octokit.request("GET /repos/{owner}/{repo}", { owner, repo });
     const languagesResponse = await octokit.request("GET /repos/{owner}/{repo}/languages", { owner, repo });
@@ -403,6 +442,7 @@ export class GitHubExecutionService {
     targetRepo: string;
     targetBranch: string;
     token?: string | null;
+    app?: GitHubAppSettings | null;
     allowlist: GitHubRepoConnection[];
   }): Promise<ManagedWorkspace> {
     if (!repositoryIsAllowed(input.targetRepo, input.allowlist)) {
@@ -412,7 +452,8 @@ export class GitHubExecutionService {
     const { owner, repo } = parseRepoSlug(input.targetRepo);
     const workspacePath = await mkdtemp(path.join(tmpdir(), "workgate-"));
     const branchName = buildManagedBranchName(input.runId, input.title);
-    const remoteUrl = input.token ? `https://x-access-token:${input.token}@github.com/${owner}/${repo}.git` : `https://github.com/${owner}/${repo}.git`;
+    const accessToken = input.app ? await createInstallationToken(input.app) : input.token;
+    const remoteUrl = accessToken ? `https://x-access-token:${accessToken}@github.com/${owner}/${repo}.git` : `https://github.com/${owner}/${repo}.git`;
 
     await runGit(["clone", "--depth", "1", "--branch", input.targetBranch, remoteUrl, workspacePath]);
     await runGit(["checkout", "-b", branchName], workspacePath);
@@ -479,7 +520,8 @@ export class GitHubExecutionService {
   }
 
   async createDraftPullRequest(input: {
-    token: string;
+    token?: string | null;
+    app?: GitHubAppSettings | null;
     targetRepo: string;
     targetBranch: string;
     branchName: string;
@@ -487,7 +529,7 @@ export class GitHubExecutionService {
     body: string;
   }): Promise<DraftPullRequestResult> {
     const { owner, repo } = parseRepoSlug(input.targetRepo);
-    const octokit = new Octokit({ auth: input.token });
+    const octokit = await createOctokitClient({ token: input.token, app: input.app });
     const response = await octokit.request("POST /repos/{owner}/{repo}/pulls", {
       owner,
       repo,

@@ -23,6 +23,6 @@ export async function POST(request: Request) {
     const settings = await saveGitHubSettingsFromPayload(payload, session);
     return NextResponse.json(settings);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save GitHub settings." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save GitHub App settings." }, { status: 400 });
   }
 }

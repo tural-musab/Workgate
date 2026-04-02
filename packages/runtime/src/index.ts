@@ -5,6 +5,7 @@ import {
   type ApprovalQueueItem,
   type ArtifactType,
   type EngineerPlan,
+  type GitHubAppSettings,
   type GitHubRepoConnection,
   type RetryMode,
   type RunDetail,
@@ -81,6 +82,9 @@ function initialStatusForRole(role: AgentRole): RunRecord["status"] {
 
 function toTaskRequest(task: RunDetail["task"]): TaskRequest {
   return {
+    workspaceId: task.workspaceId,
+    teamId: task.teamId,
+    createdBy: task.createdBy,
     title: task.title,
     goal: task.goal,
     taskType: task.taskType,
@@ -91,6 +95,27 @@ function toTaskRequest(task: RunDetail["task"]): TaskRequest {
     constraints: task.constraints,
     acceptanceCriteria: task.acceptanceCriteria,
     attachments: task.attachments
+  };
+}
+
+function resolveGitHubAppSettings(
+  runtime: RuntimeServices,
+  settings: Awaited<ReturnType<StorageAdapter["getGitHubSettings"]>>
+): GitHubAppSettings | null {
+  if (!settings.appId || !settings.installationId || !settings.privateKeyEncrypted) {
+    return null;
+  }
+
+  const privateKeyPem = runtime.resolveGitHubToken?.(settings.privateKeyEncrypted) ?? null;
+  if (!privateKeyPem) {
+    return null;
+  }
+
+  return {
+    appId: settings.appId,
+    installationId: settings.installationId,
+    privateKeyPem,
+    ...(settings.appSlug ? { appSlug: settings.appSlug } : {})
   };
 }
 
@@ -356,7 +381,8 @@ export async function seedRetryHistory(runtime: RuntimeServices, runId: string, 
 }
 
 async function buildWorkflowTask(detail: RunDetail, runtime: RuntimeServices): Promise<{ task: TaskRequest; startOptions?: WorkflowStartOptions }> {
-  const githubSettings = await runtime.storage.getGitHubSettings();
+  const githubSettings = await runtime.storage.getGitHubSettings(detail.run.teamId);
+  const githubApp = resolveGitHubAppSettings(runtime, githubSettings);
   const { task: sanitizedTask, retrySeed } = extractRetrySeed(toTaskRequest(detail.task));
   const baseTask: TaskRequest = {
     ...sanitizedTask,
@@ -388,11 +414,12 @@ async function buildWorkflowTask(detail: RunDetail, runtime: RuntimeServices): P
   }
 
   try {
-    const token = runtime.resolveGitHubToken?.(githubSettings.tokenEncrypted) ?? null;
+    const token = null;
     const repoContext = await runtime.github.fetchRepositoryContext({
       targetRepo: detail.task.targetRepo,
       targetBranch: detail.task.targetBranch,
       token,
+      app: githubApp,
       allowlist: githubSettings.allowedRepos
     });
 
@@ -473,14 +500,16 @@ async function prepareSoftwareDiffPreview(runtime: RuntimeServices, detail: RunD
     return;
   }
 
-  const githubSettings = await runtime.storage.getGitHubSettings();
+  const githubSettings = await runtime.storage.getGitHubSettings(detail.run.teamId);
+  const githubApp = resolveGitHubAppSettings(runtime, githubSettings);
   try {
     const workspace = await runtime.github.createManagedWorkspace({
       runId: detail.run.id,
       title: detail.run.title,
       targetRepo: detail.run.targetRepo,
       targetBranch: detail.run.targetBranch,
-      token: runtime.resolveGitHubToken?.(githubSettings.tokenEncrypted) ?? null,
+      token: null,
+      app: githubApp,
       allowlist: githubSettings.allowedRepos
     });
     await runtime.storage.addToolCall({
@@ -759,6 +788,7 @@ export function buildApprovalQueueItem(detail: RunDetail): ApprovalQueueItem {
 
   return {
     ...detail.run,
+    teamName: null,
     lastCompletedRole,
     approvalReadyReason: readyReason,
     quickRiskSummary: reviewArtifact?.content.slice(0, 160) ?? "No review summary captured yet.",

@@ -88,7 +88,7 @@ function iconForWorkflow(template: WorkflowTemplateId) {
   }
 }
 
-export function TaskComposer() {
+export function TaskComposer({ activeTeamId }: { activeTeamId: string }) {
   const router = useRouter();
   const { locale, messages } = useLocale();
   const templates = listWorkflowPresentations(locale);
@@ -129,6 +129,7 @@ export function TaskComposer() {
     setError(null);
 
     const payload = {
+      teamId: activeTeamId,
       title: form.title,
       goal: form.goal,
       taskType: form.taskType,

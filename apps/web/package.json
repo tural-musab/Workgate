@@ -9,6 +9,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.57.4",
     "@workgate/agents": "workspace:*",
     "@workgate/db": "workspace:*",
     "@workgate/github": "workspace:*",

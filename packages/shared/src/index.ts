@@ -36,6 +36,11 @@ export const workflowTemplates = ["software_delivery", "rfp_response", "social_m
 export const activeWorkflowTemplates = ["software_delivery", "rfp_response"] as const;
 export const modelProviders = ["openai", "anthropic", "google", "mock"] as const;
 export const executionModes = ["live", "mock", "rule", "reused"] as const;
+export const workspaceRoles = ["workspace_owner", "workspace_admin"] as const;
+export const teamRoles = ["team_operator", "team_reviewer", "team_viewer"] as const;
+export const approvalPolicyScopeTypes = ["workspace_default", "team_override"] as const;
+export const authModes = ["seed_admin", "supabase"] as const;
+export const executionBackends = ["local", "remote_sandbox"] as const;
 
 export type AgentRole = (typeof agentRoles)[number];
 export type RunStatus = (typeof runStatuses)[number];
@@ -49,6 +54,11 @@ export type TaskType = (typeof taskTypes)[number];
 export type WorkflowTemplateId = (typeof workflowTemplates)[number];
 export type ModelProvider = (typeof modelProviders)[number];
 export type ExecutionMode = (typeof executionModes)[number];
+export type WorkspaceRole = (typeof workspaceRoles)[number];
+export type TeamRole = (typeof teamRoles)[number];
+export type ApprovalPolicyScopeType = (typeof approvalPolicyScopeTypes)[number];
+export type AuthMode = (typeof authModes)[number];
+export type ExecutionBackend = (typeof executionBackends)[number];
 
 export const AttachmentSchema = z.object({
   name: z.string().min(1),
@@ -63,7 +73,8 @@ export const SoftwareDeliveryWorkflowInputSchema = z.object({
 
 export const RfpResponseWorkflowInputSchema = z.object({
   accountName: z.string().min(1).max(255),
-  knowledgeSource: z.string().min(1).max(255)
+  knowledgeSource: z.string().min(1).max(255),
+  knowledgeSourceId: z.string().min(1).optional()
 });
 
 export const SocialMediaOpsWorkflowInputSchema = z.object({
@@ -87,18 +98,22 @@ const TaskBaseSchema = z.object({
 
 export const CreateTaskPayloadSchema = z.discriminatedUnion("workflowTemplate", [
   TaskBaseSchema.extend({
+    teamId: z.string().min(1),
     workflowTemplate: z.literal("software_delivery"),
     workflowInput: SoftwareDeliveryWorkflowInputSchema
   }),
   TaskBaseSchema.extend({
+    teamId: z.string().min(1),
     workflowTemplate: z.literal("rfp_response"),
     workflowInput: RfpResponseWorkflowInputSchema
   }),
   TaskBaseSchema.extend({
+    teamId: z.string().min(1),
     workflowTemplate: z.literal("social_media_ops"),
     workflowInput: SocialMediaOpsWorkflowInputSchema
   }),
   TaskBaseSchema.extend({
+    teamId: z.string().min(1),
     workflowTemplate: z.literal("security_questionnaire"),
     workflowInput: SecurityQuestionnaireWorkflowInputSchema
   })
@@ -112,6 +127,9 @@ export const WorkflowInputSchema = z.union([
 ]);
 
 export const TaskRequestSchema = TaskBaseSchema.extend({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  createdBy: z.string().min(1),
   workflowTemplate: z.enum(workflowTemplates).default("software_delivery"),
   workflowInput: WorkflowInputSchema,
   targetRepo: z.string().min(1).max(255),
@@ -219,6 +237,8 @@ export const ToolCallRecordSchema = z.object({
 export const RunRecordSchema = z.object({
   id: z.string(),
   taskRequestId: z.string(),
+  workspaceId: z.string(),
+  teamId: z.string(),
   status: z.enum(runStatuses),
   title: z.string(),
   taskType: z.enum(taskTypes),
@@ -233,6 +253,7 @@ export const RunRecordSchema = z.object({
 });
 
 export const ApprovalQueueItemSchema = RunRecordSchema.extend({
+  teamName: z.string().nullable(),
   lastCompletedRole: z.enum(agentRoles).nullable(),
   approvalReadyReason: z.string(),
   quickRiskSummary: z.string(),
@@ -254,6 +275,8 @@ export const RunDetailSchema = z.object({
 
 export const GitHubRepoConnectionSchema = z.object({
   id: z.string().optional(),
+  workspaceId: z.string().optional(),
+  teamId: z.string().optional(),
   provider: z.literal("github").default("github"),
   owner: z.string().min(1),
   repo: z.string().min(1),
@@ -261,15 +284,179 @@ export const GitHubRepoConnectionSchema = z.object({
   createdAt: z.string().optional()
 });
 
-export const GitHubSettingsSchema = z.object({
-  token: z.string().min(1),
-  allowedRepos: z.array(GitHubRepoConnectionSchema).default([])
+export const GitHubAppSettingsSchema = z.object({
+  appId: z.string().min(1),
+  installationId: z.string().min(1),
+  privateKeyPem: z.string().min(1),
+  appSlug: z.string().min(1).optional()
 });
 
-export const GitHubSettingsViewSchema = z.object({
-  hasToken: z.boolean(),
-  maskedToken: z.string().nullable(),
+export const GitHubAppSettingsViewSchema = z.object({
+  hasApp: z.boolean(),
+  appId: z.string().nullable(),
+  installationId: z.string().nullable(),
+  appSlug: z.string().nullable(),
+  maskedPrivateKey: z.string().nullable(),
   allowedRepos: z.array(GitHubRepoConnectionSchema)
+});
+
+export const WorkspaceRecordSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  createdAt: z.string()
+});
+
+export const TeamRecordSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullable(),
+  createdAt: z.string()
+});
+
+export const WorkspaceMemberRecordSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  email: z.string().email(),
+  displayName: z.string().nullable(),
+  workspaceRole: z.enum(workspaceRoles).nullable(),
+  createdAt: z.string()
+});
+
+export const TeamMembershipRecordSchema = z.object({
+  id: z.string(),
+  teamId: z.string(),
+  workspaceMemberId: z.string(),
+  teamRole: z.enum(teamRoles),
+  createdAt: z.string()
+});
+
+export const TeamWorkflowAccessRecordSchema = z.object({
+  id: z.string(),
+  teamId: z.string(),
+  workflowTemplate: z.enum(workflowTemplates),
+  createdAt: z.string()
+});
+
+export const SessionTeamSchema = TeamRecordSchema.extend({
+  teamRole: z.enum(teamRoles)
+});
+
+export const SessionSchema = z.object({
+  authMode: z.enum(authModes),
+  userId: z.string(),
+  email: z.string().email().nullable(),
+  displayName: z.string(),
+  workspace: WorkspaceRecordSchema,
+  workspaceRole: z.enum(workspaceRoles).nullable(),
+  teams: z.array(SessionTeamSchema),
+  activeTeamId: z.string().nullable(),
+  activeTeam: SessionTeamSchema.nullable(),
+  canViewAllTeams: z.boolean()
+});
+
+export const ApprovalPolicySchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  teamId: z.string().nullable(),
+  scopeType: z.enum(approvalPolicyScopeTypes),
+  workflowTemplate: z.enum(workflowTemplates),
+  minApprovals: z.number().int().positive(),
+  approverRoles: z.array(z.enum(teamRoles)),
+  requireRejectNote: z.boolean(),
+  requireSecondApprovalForExternalWrite: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export const SaveApprovalPolicySchema = z.object({
+  teamId: z.string().nullable(),
+  scopeType: z.enum(approvalPolicyScopeTypes),
+  workflowTemplate: z.enum(workflowTemplates),
+  minApprovals: z.number().int().positive(),
+  approverRoles: z.array(z.enum(teamRoles)).min(1),
+  requireRejectNote: z.boolean().default(false),
+  requireSecondApprovalForExternalWrite: z.boolean().default(false)
+});
+
+export const TeamManagementSchema = z.object({
+  name: z.string().min(2).max(120),
+  slug: z.string().min(2).max(120),
+  description: z.string().max(280).nullable().default(null),
+  allowedWorkflows: z.array(z.enum(workflowTemplates)).default(activeWorkflowTemplates as unknown as WorkflowTemplateId[])
+});
+
+export const WorkspaceMemberInputSchema = z.object({
+  email: z.string().email(),
+  displayName: z.string().min(1).max(160).nullable().default(null),
+  workspaceRole: z.enum(workspaceRoles).nullable().default(null),
+  teamMemberships: z
+    .array(
+      z.object({
+        teamId: z.string().min(1),
+        teamRole: z.enum(teamRoles)
+      })
+    )
+    .min(1)
+});
+
+export const UsageFiltersSchema = z.object({
+  teamId: z.string().nullable().default(null),
+  workflowTemplate: z.enum(workflowTemplates).nullable().default(null),
+  provider: z.enum(modelProviders).nullable().default(null),
+  model: z.string().nullable().default(null),
+  windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).default(30)
+});
+
+export const UsageProviderBreakdownSchema = z.object({
+  provider: z.enum(modelProviders).nullable(),
+  model: z.string().nullable(),
+  runs: z.number().int().nonnegative(),
+  inputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  costUsd: z.number().nonnegative()
+});
+
+export const UsageTeamBreakdownSchema = z.object({
+  teamId: z.string(),
+  teamName: z.string(),
+  runs: z.number().int().nonnegative(),
+  inputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  costUsd: z.number().nonnegative()
+});
+
+export const UsageSummarySchema = z.object({
+  filters: UsageFiltersSchema,
+  totalRuns: z.number().int().nonnegative(),
+  totalInputTokens: z.number().nonnegative(),
+  totalOutputTokens: z.number().nonnegative(),
+  totalCostUsd: z.number().nonnegative(),
+  byProvider: z.array(UsageProviderBreakdownSchema),
+  byTeam: z.array(UsageTeamBreakdownSchema)
+});
+
+export const KnowledgeSourceSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  teamId: z.string(),
+  name: z.string(),
+  sourceType: z.enum(["markdown", "text", "json"]),
+  description: z.string().nullable(),
+  storagePath: z.string().nullable(),
+  content: z.string().nullable(),
+  createdBy: z.string(),
+  createdAt: z.string()
+});
+
+export const KnowledgeSourceInputSchema = z.object({
+  teamId: z.string().min(1),
+  name: z.string().min(2).max(160),
+  sourceType: z.enum(["markdown", "text", "json"]).default("markdown"),
+  description: z.string().max(280).nullable().default(null),
+  content: z.string().min(1)
 });
 
 export const RetryRunPayloadSchema = z.object({
@@ -312,8 +499,25 @@ export type RunRecord = z.infer<typeof RunRecordSchema>;
 export type ApprovalQueueItem = z.infer<typeof ApprovalQueueItemSchema>;
 export type RunDetail = z.infer<typeof RunDetailSchema>;
 export type GitHubRepoConnection = z.infer<typeof GitHubRepoConnectionSchema>;
-export type GitHubSettings = z.infer<typeof GitHubSettingsSchema>;
-export type GitHubSettingsView = z.infer<typeof GitHubSettingsViewSchema>;
+export type GitHubAppSettings = z.infer<typeof GitHubAppSettingsSchema>;
+export type GitHubAppSettingsView = z.infer<typeof GitHubAppSettingsViewSchema>;
+export type WorkspaceRecord = z.infer<typeof WorkspaceRecordSchema>;
+export type TeamRecord = z.infer<typeof TeamRecordSchema>;
+export type WorkspaceMemberRecord = z.infer<typeof WorkspaceMemberRecordSchema>;
+export type TeamMembershipRecord = z.infer<typeof TeamMembershipRecordSchema>;
+export type TeamWorkflowAccessRecord = z.infer<typeof TeamWorkflowAccessRecordSchema>;
+export type SessionTeam = z.infer<typeof SessionTeamSchema>;
+export type Session = z.infer<typeof SessionSchema>;
+export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>;
+export type SaveApprovalPolicyInput = z.infer<typeof SaveApprovalPolicySchema>;
+export type TeamManagementInput = z.infer<typeof TeamManagementSchema>;
+export type WorkspaceMemberInput = z.infer<typeof WorkspaceMemberInputSchema>;
+export type UsageFilters = z.infer<typeof UsageFiltersSchema>;
+export type UsageProviderBreakdown = z.infer<typeof UsageProviderBreakdownSchema>;
+export type UsageTeamBreakdown = z.infer<typeof UsageTeamBreakdownSchema>;
+export type UsageSummary = z.infer<typeof UsageSummarySchema>;
+export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
+export type KnowledgeSourceInput = z.infer<typeof KnowledgeSourceInputSchema>;
 export type RetryRunPayload = z.infer<typeof RetryRunPayloadSchema>;
 export type ModelPolicy = z.infer<typeof ModelPolicySchema>;
 export type DashboardSummary = z.infer<typeof DashboardSummarySchema>;
@@ -327,6 +531,25 @@ export const defaultModelPolicies: ModelPolicy[] = [
   { role: "engineer", provider: "openai", model: "gpt-5.4", reviewerProvider: "anthropic", reviewerModel: "claude-sonnet-4-6" },
   { role: "reviewer", provider: "anthropic", model: "claude-sonnet-4-6" },
   { role: "docs", provider: "anthropic", model: "claude-sonnet-4-6" }
+];
+
+export const defaultApprovalPolicies: Array<Omit<ApprovalPolicy, "id" | "workspaceId" | "teamId" | "createdAt" | "updatedAt">> = [
+  {
+    scopeType: "workspace_default",
+    workflowTemplate: "software_delivery",
+    minApprovals: 1,
+    approverRoles: ["team_reviewer"],
+    requireRejectNote: true,
+    requireSecondApprovalForExternalWrite: false
+  },
+  {
+    scopeType: "workspace_default",
+    workflowTemplate: "rfp_response",
+    minApprovals: 1,
+    approverRoles: ["team_reviewer"],
+    requireRejectNote: true,
+    requireSecondApprovalForExternalWrite: false
+  }
 ];
 
 export function deriveWorkflowTargets(workflowTemplate: WorkflowTemplateId, workflowInput: WorkflowInput) {
@@ -363,10 +586,15 @@ export function deriveWorkflowTargets(workflowTemplate: WorkflowTemplateId, work
   }
 }
 
-export function normalizeCreateTaskPayload(input: CreateTaskPayload): TaskRequest {
+export function normalizeCreateTaskPayload(
+  input: CreateTaskPayload,
+  context: { workspaceId: string; createdBy: string }
+): TaskRequest {
   const targets = deriveWorkflowTargets(input.workflowTemplate, input.workflowInput);
   return TaskRequestSchema.parse({
     ...input,
+    workspaceId: context.workspaceId,
+    createdBy: context.createdBy,
     ...targets
   });
 }
@@ -401,6 +629,29 @@ export function isActiveWorkflowTemplate(template: WorkflowTemplateId) {
 
 export function isGitHubWorkflowTemplate(template: WorkflowTemplateId) {
   return template === "software_delivery";
+}
+
+export function canManageWorkspace(workspaceRole: WorkspaceRole | null) {
+  return workspaceRole === "workspace_owner" || workspaceRole === "workspace_admin";
+}
+
+export function canViewAllTeams(workspaceRole: WorkspaceRole | null) {
+  return canManageWorkspace(workspaceRole);
+}
+
+export function canCreateTasks(teamRole: TeamRole | null, workspaceRole: WorkspaceRole | null) {
+  if (canManageWorkspace(workspaceRole)) return true;
+  return teamRole === "team_operator" || teamRole === "team_reviewer";
+}
+
+export function canReviewRuns(teamRole: TeamRole | null, workspaceRole: WorkspaceRole | null) {
+  if (canManageWorkspace(workspaceRole)) return true;
+  return teamRole === "team_reviewer";
+}
+
+export function canOperateRuns(teamRole: TeamRole | null, workspaceRole: WorkspaceRole | null) {
+  if (canManageWorkspace(workspaceRole)) return true;
+  return teamRole === "team_operator" || teamRole === "team_reviewer";
 }
 
 export function isValidGitHubRepoSlug(value: string) {

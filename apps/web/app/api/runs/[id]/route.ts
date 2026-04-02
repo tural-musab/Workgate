@@ -10,7 +10,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   }
 
   const { id } = await params;
-  const detail = await getRunDetail(id);
+  const detail = await getRunDetail(id, session);
   if (!detail) {
     return NextResponse.json({ error: "Run not found" }, { status: 404 });
   }
@@ -26,7 +26,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
 
   const { id } = await params;
   try {
-    await deleteRun(id);
+    await deleteRun(id, session);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Action failed." }, { status: 400 });

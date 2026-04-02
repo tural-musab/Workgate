@@ -14,7 +14,8 @@ import { canCancelRun, canDeleteRun, canRetryRun } from "@workgate/shared";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [session, detail, runtime, locale] = await Promise.all([requirePageSession(), getRunDetail(id), getRuntimeInfo(), getServerLocale()]);
+  const [session, runtime, locale] = await Promise.all([requirePageSession(), getRuntimeInfo(), getServerLocale()]);
+  const detail = await getRunDetail(id, session);
   if (!detail) notFound();
   const messages = getMessages(locale);
   const allowFailedOnlyRetry = canRetryFailedOnly(detail);
@@ -24,7 +25,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const totalCost = detail.steps.reduce((sum, step) => sum + (step.costUsd ?? 0), 0);
 
   return (
-    <AppShell username={session.username} runtime={runtime}>
+    <AppShell session={session} runtime={runtime}>
       <div className="space-y-8">
         <header className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">

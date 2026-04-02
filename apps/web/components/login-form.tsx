@@ -7,7 +7,7 @@ import { resolveApiMessage } from "@/lib/i18n";
 
 import { useLocale } from "./locale-provider";
 
-export function LoginForm() {
+export function LoginForm({ authMode }: { authMode: "seed_admin" | "supabase" }) {
   const router = useRouter();
   const { messages } = useLocale();
   const [error, setError] = useState<string | null>(null);
@@ -19,19 +19,25 @@ export function LoginForm() {
     const formData = new FormData(event.currentTarget);
     const username = String(formData.get("username") ?? "");
     const password = String(formData.get("password") ?? "");
+    const email = String(formData.get("email") ?? "");
 
     startTransition(async () => {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(authMode === "supabase" ? "/api/auth/magic-link" : "/api/auth/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify(authMode === "supabase" ? { email } : { username, password })
       });
 
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
         setError(resolveApiMessage(body?.error, messages, "invalidCredentials"));
+        return;
+      }
+
+      if (authMode === "supabase") {
+        setError(null);
         return;
       }
 
@@ -46,23 +52,37 @@ export function LoginForm() {
         <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white">{messages.loginForm.title}</h1>
         <p className="text-sm leading-6 text-slate-300">{messages.loginForm.description}</p>
       </div>
-      <label className="space-y-2">
-        <span className="text-sm text-slate-300">{messages.loginForm.username}</span>
-        <input name="username" required className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40" />
-      </label>
-      <label className="space-y-2">
-        <span className="text-sm text-slate-300">{messages.loginForm.password}</span>
-        <input
-          name="password"
-          type="password"
-          required
-          className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
-        />
-      </label>
+      {authMode === "supabase" ? (
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Invited email</span>
+          <input
+            name="email"
+            type="email"
+            required
+            className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
+          />
+        </label>
+      ) : (
+        <>
+          <label className="space-y-2">
+            <span className="text-sm text-slate-300">{messages.loginForm.username}</span>
+            <input name="username" required className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40" />
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm text-slate-300">{messages.loginForm.password}</span>
+            <input
+              name="password"
+              type="password"
+              required
+              className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
+            />
+          </label>
+        </>
+      )}
       <div className="flex items-center justify-between gap-4">
-        <span className="text-sm text-rose-300">{error}</span>
+        <span className="text-sm text-rose-300">{error ?? (authMode === "supabase" ? "Invite-only magic link sign-in." : "")}</span>
         <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60">
-          {isPending ? messages.loginForm.pending : messages.loginForm.submit}
+          {isPending ? messages.loginForm.pending : authMode === "supabase" ? "Send magic link" : messages.loginForm.submit}
         </button>
       </div>
     </form>

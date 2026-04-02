@@ -15,11 +15,12 @@ import { getWorkflowPresentation } from "@/lib/workflows";
 import { canCancelRun, canDeleteRun, canRetryRun } from "@workgate/shared";
 
 export default async function DashboardPage() {
-  const [session, data, locale] = await Promise.all([requirePageSession(), getDashboardData(), getServerLocale()]);
+  const [session, locale] = await Promise.all([requirePageSession(), getServerLocale()]);
+  const data = await getDashboardData(session);
   const messages = getMessages(locale);
 
   return (
-    <AppShell username={session.username} runtime={data.runtime}>
+    <AppShell session={session} runtime={data.runtime}>
       <div className="space-y-8">
         <header className="space-y-3">
           <div className="text-[0.72rem] uppercase tracking-[0.22em] text-cyan-200/70">{messages.dashboard.eyebrow}</div>
@@ -47,7 +48,7 @@ export default async function DashboardPage() {
 
         <div className="operator-grid">
           <div className="space-y-6">
-            <TaskComposer />
+            <TaskComposer activeTeamId={session.activeTeamId ?? session.activeTeam?.id ?? session.teams[0]?.id ?? "team_default"} />
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="flex items-center justify-between gap-4">

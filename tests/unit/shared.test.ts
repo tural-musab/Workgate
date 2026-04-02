@@ -6,6 +6,7 @@ import { CreateTaskPayloadSchema, canCancelRun, canDeleteRun, canRetryRun, canTr
 describe("shared contracts", () => {
   it("validates task payloads", () => {
     const parsed = CreateTaskPayloadSchema.parse({
+      teamId: "team_default",
       title: "Fix CI drift",
       goal: "Align CI workflow output with the expected notification schema.",
       taskType: "bugfix",
@@ -19,7 +20,10 @@ describe("shared contracts", () => {
       attachments: []
     });
 
-    const normalized = normalizeCreateTaskPayload(parsed);
+    const normalized = normalizeCreateTaskPayload(parsed, {
+      workspaceId: "workspace_default",
+      createdBy: "seed:operator"
+    });
     expect(normalized.targetRepo).toBe("owner/repo");
     expect(normalized.workflowTemplate).toBe("software_delivery");
   });

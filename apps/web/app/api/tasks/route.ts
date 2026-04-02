@@ -11,10 +11,9 @@ export async function POST(request: Request) {
 
   try {
     const payload = await request.json();
-    const detail = await createTask(payload);
+    const detail = await createTask(payload, session);
     return NextResponse.json({ runId: detail.run.id, taskId: detail.task.id });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to create task." }, { status: 400 });
   }
 }
-

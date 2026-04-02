@@ -23,19 +23,34 @@ import {
 } from "@workgate/runtime";
 import {
   CreateTaskPayloadSchema,
-  GitHubSettingsViewSchema,
+  GitHubAppSettingsSchema,
+  GitHubAppSettingsViewSchema,
+  KnowledgeSourceInputSchema,
   RetryRunPayloadSchema,
+  SaveApprovalPolicySchema,
+  TeamManagementSchema,
+  UsageFiltersSchema,
+  WorkspaceMemberInputSchema,
   canCancelRun,
+  canCreateTasks,
   canDeleteRun,
+  canManageWorkspace,
+  canOperateRuns,
   canRetryRun,
+  canReviewRuns,
+  canViewAllTeams,
   defaultModelPolicies,
-  type ApprovalAction,
-  type GitHubSettingsView,
-  type RunDetail,
   isActiveWorkflowTemplate,
   isGitHubWorkflowTemplate,
   isValidGitHubRepoSlug,
-  normalizeCreateTaskPayload
+  normalizeCreateTaskPayload,
+  type ApprovalAction,
+  type ApprovalPolicy,
+  type GitHubAppSettings,
+  type GitHubAppSettingsView,
+  type GitHubRepoConnection,
+  type RunDetail,
+  type Session
 } from "@workgate/shared";
 
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
@@ -56,6 +71,7 @@ function buildPullRequestBody(detail: RunDetail) {
     "### Run metadata",
     `- Run ID: ${detail.run.id}`,
     `- Task: ${detail.run.title}`,
+    `- Workflow: ${detail.run.workflowTemplate}`,
     `- Target repo: ${detail.run.targetRepo}`,
     "",
     artifactSections
@@ -80,6 +96,118 @@ function getRuntime() {
     globalThis.__WORKGATE_RUNTIME__ = createRuntime();
   }
   return globalThis.__WORKGATE_RUNTIME__;
+}
+
+async function buildDefaultSession(runtime: AppRuntime): Promise<Session> {
+  const { workspace, defaultTeam } = await runtime.storage.ensureBootstrapWorkspace();
+  return {
+    authMode: "seed_admin",
+    userId: "seed:operator",
+    email: null,
+    displayName: "operator",
+    workspace,
+    workspaceRole: "workspace_owner",
+    teams: [{ ...defaultTeam, teamRole: "team_reviewer" }],
+    activeTeamId: defaultTeam.id,
+    activeTeam: { ...defaultTeam, teamRole: "team_reviewer" },
+    canViewAllTeams: true
+  };
+}
+
+async function getEffectiveSession(session?: Session) {
+  return session ?? buildDefaultSession(getRuntime());
+}
+
+function resolveActiveTeam(session: Session, requestedTeamId?: string | null) {
+  if (requestedTeamId) {
+    return session.teams.find((team) => team.id === requestedTeamId) ?? null;
+  }
+  if (session.activeTeam) return session.activeTeam;
+  if (session.activeTeamId) return session.teams.find((team) => team.id === session.activeTeamId) ?? null;
+  return session.teams[0] ?? null;
+}
+
+function getTeamRole(session: Session, teamId: string) {
+  return session.teams.find((team) => team.id === teamId)?.teamRole ?? null;
+}
+
+function assertTeamAccess(session: Session, teamId: string) {
+  if (canViewAllTeams(session.workspaceRole)) return;
+  if (!session.teams.some((team) => team.id === teamId)) {
+    throw new Error("You do not have access to that team.");
+  }
+}
+
+function getScopedTeamId(session: Session, includeAllTeams = false) {
+  if (includeAllTeams && canViewAllTeams(session.workspaceRole)) {
+    return null;
+  }
+  return resolveActiveTeam(session)?.id ?? null;
+}
+
+function getScope(session: Session, includeAllTeams = false) {
+  return {
+    workspaceId: session.workspace.id,
+    teamId: getScopedTeamId(session, includeAllTeams)
+  };
+}
+
+async function getTeamNameMap(runtime: AppRuntime, workspaceId: string) {
+  const teams = await runtime.storage.listTeams(workspaceId);
+  return new Map(teams.map((team) => [team.id, team.name]));
+}
+
+async function getAuthorizedRunDetail(runtime: AppRuntime, session: Session, runId: string) {
+  const detail = await runtime.storage.getRunDetail(runId);
+  if (!detail) return null;
+  if (detail.run.workspaceId !== session.workspace.id) {
+    throw new Error("Run not found.");
+  }
+  assertTeamAccess(session, detail.run.teamId);
+  return detail;
+}
+
+async function resolveGitHubAppSettings(runtime: AppRuntime, teamId: string): Promise<{ settings: GitHubAppSettings; allowlist: GitHubRepoConnection[] }> {
+  const settings = await runtime.storage.getGitHubSettings(teamId);
+  const privateKeyPem = runtime.resolveGitHubToken?.(settings.privateKeyEncrypted) ?? null;
+  if (!settings.appId || !settings.installationId || !privateKeyPem) {
+    throw new Error("GitHub App settings are not configured for the active team.");
+  }
+
+  return {
+    settings: GitHubAppSettingsSchema.parse({
+      appId: settings.appId,
+      installationId: settings.installationId,
+      privateKeyPem,
+      ...(settings.appSlug ? { appSlug: settings.appSlug } : {})
+    }),
+    allowlist: settings.allowedRepos
+  };
+}
+
+async function assertWorkflowAccess(runtime: AppRuntime, session: Session, teamId: string, workflowTemplate: RunDetail["task"]["workflowTemplate"]) {
+  assertTeamAccess(session, teamId);
+  const allowed = await runtime.storage.getTeamWorkflowAccess(teamId);
+  if (allowed.length > 0 && !allowed.includes(workflowTemplate)) {
+    throw new Error("This workflow is not enabled for the selected team.");
+  }
+}
+
+function requiredApprovals(policy: ApprovalPolicy, workflowTemplate: RunDetail["task"]["workflowTemplate"]) {
+  if (isGitHubWorkflowTemplate(workflowTemplate) && policy.requireSecondApprovalForExternalWrite) {
+    return Math.max(policy.minApprovals, 2);
+  }
+  return policy.minApprovals;
+}
+
+function assertApprovalPermission(session: Session, teamId: string, policy: ApprovalPolicy) {
+  const teamRole = getTeamRole(session, teamId);
+  if (!canReviewRuns(teamRole, session.workspaceRole)) {
+    throw new Error("You do not have permission to review this run.");
+  }
+  if (!canManageWorkspace(session.workspaceRole) && (!teamRole || !policy.approverRoles.includes(teamRole))) {
+    throw new Error("Your role is not allowed to approve this workflow.");
+  }
 }
 
 export async function ensureWorkerStarted() {
@@ -125,16 +253,34 @@ export function canRetryFailedOnly(detail: RunDetail) {
   return runtimeCanRetryFailedOnly(detail);
 }
 
-export async function createTask(input: unknown) {
+export async function createTask(input: unknown, session?: Session) {
   const runtime = getRuntime();
+  const effectiveSession = await getEffectiveSession(session);
   const payload = CreateTaskPayloadSchema.parse(input);
   if (!isActiveWorkflowTemplate(payload.workflowTemplate)) {
     throw new Error("This workflow template is not active yet.");
   }
 
-  const task = normalizeCreateTaskPayload(payload);
-  if (isGitHubWorkflowTemplate(task.workflowTemplate) && !isValidGitHubRepoSlug(task.targetRepo)) {
-    throw new Error("Software Delivery Team requires a valid GitHub repository slug.");
+  await assertWorkflowAccess(runtime, effectiveSession, payload.teamId, payload.workflowTemplate);
+  const teamRole = getTeamRole(effectiveSession, payload.teamId);
+  if (!canCreateTasks(teamRole, effectiveSession.workspaceRole)) {
+    throw new Error("You do not have permission to create tasks for this team.");
+  }
+
+  const task = normalizeCreateTaskPayload(payload, {
+    workspaceId: effectiveSession.workspace.id,
+    createdBy: effectiveSession.email ?? effectiveSession.userId
+  });
+
+  if (isGitHubWorkflowTemplate(task.workflowTemplate)) {
+    if (!isValidGitHubRepoSlug(task.targetRepo)) {
+      throw new Error("Software Delivery Team requires a valid GitHub repository slug.");
+    }
+    const { allowlist } = await resolveGitHubAppSettings(runtime, task.teamId);
+    const repoAllowed = allowlist.some((repo) => repo.isAllowed && `${repo.owner}/${repo.repo}` === task.targetRepo);
+    if (!repoAllowed) {
+      throw new Error(`Repository ${task.targetRepo} is not allowlisted for the active team.`);
+    }
   }
 
   const detail = await runtime.storage.createTaskAndRun(task);
@@ -142,23 +288,45 @@ export async function createTask(input: unknown) {
   return detail;
 }
 
-export async function listRuns() {
-  return getRuntime().storage.listRuns();
+export async function listRuns(session?: Session, includeAllTeams = false) {
+  const effectiveSession = await getEffectiveSession(session);
+  return getRuntime().storage.listRuns(getScope(effectiveSession, includeAllTeams));
 }
 
-export async function listPendingApprovalRuns() {
-  const runs = await getRuntime().storage.listPendingApprovalRuns();
-  const details = await Promise.all(runs.map((run) => getRuntime().storage.getRunDetail(run.id)));
-  return details.filter((detail): detail is RunDetail => Boolean(detail)).map(buildApprovalQueueItem);
-}
-
-export async function getRunDetail(runId: string) {
-  return getRuntime().storage.getRunDetail(runId);
-}
-
-export async function getDashboardData() {
+export async function listPendingApprovalRuns(session?: Session, includeAllTeams = false) {
   const runtime = getRuntime();
-  const [summary, runs, approvals] = await Promise.all([runtime.storage.getDashboardSummary(), runtime.storage.listRuns(), listPendingApprovalRuns()]);
+  const effectiveSession = await getEffectiveSession(session);
+  const runs = await runtime.storage.listPendingApprovalRuns(getScope(effectiveSession, includeAllTeams));
+  const [details, teamNames] = await Promise.all([
+    Promise.all(runs.map((run) => runtime.storage.getRunDetail(run.id))),
+    getTeamNameMap(runtime, effectiveSession.workspace.id)
+  ]);
+
+  return details
+    .filter((detail): detail is RunDetail => Boolean(detail))
+    .map((detail) => {
+      const item = buildApprovalQueueItem(detail);
+      return {
+        ...item,
+        teamName: teamNames.get(detail.run.teamId) ?? null
+      };
+    });
+}
+
+export async function getRunDetail(runId: string, session?: Session) {
+  const runtime = getRuntime();
+  const effectiveSession = await getEffectiveSession(session);
+  return getAuthorizedRunDetail(runtime, effectiveSession, runId);
+}
+
+export async function getDashboardData(session?: Session, includeAllTeams = false) {
+  const runtime = getRuntime();
+  const effectiveSession = await getEffectiveSession(session);
+  const [summary, runs, approvals] = await Promise.all([
+    runtime.storage.getDashboardSummary(getScope(effectiveSession, includeAllTeams)),
+    runtime.storage.listRuns(getScope(effectiveSession, includeAllTeams)),
+    listPendingApprovalRuns(effectiveSession, includeAllTeams)
+  ]);
   return {
     summary,
     runs,
@@ -170,13 +338,29 @@ export async function getDashboardData() {
   };
 }
 
-export async function getGitHubSettingsView(): Promise<GitHubSettingsView> {
+export async function getGitHubSettingsView(session?: Session): Promise<GitHubAppSettingsView> {
   const runtime = getRuntime();
-  const settings = await runtime.storage.getGitHubSettings();
-  const token = runtime.resolveGitHubToken?.(settings.tokenEncrypted) ?? null;
-  return GitHubSettingsViewSchema.parse({
-    hasToken: Boolean(token),
-    maskedToken: maskSecret(token),
+  const effectiveSession = await getEffectiveSession(session);
+  const teamId = resolveActiveTeam(effectiveSession)?.id ?? null;
+  if (!teamId) {
+    return GitHubAppSettingsViewSchema.parse({
+      hasApp: false,
+      appId: null,
+      installationId: null,
+      appSlug: null,
+      maskedPrivateKey: null,
+      allowedRepos: []
+    });
+  }
+
+  const settings = await runtime.storage.getGitHubSettings(teamId);
+  const privateKeyPem = runtime.resolveGitHubToken?.(settings.privateKeyEncrypted) ?? null;
+  return GitHubAppSettingsViewSchema.parse({
+    hasApp: Boolean(privateKeyPem && settings.appId && settings.installationId),
+    appId: settings.appId,
+    installationId: settings.installationId,
+    appSlug: settings.appSlug,
+    maskedPrivateKey: maskSecret(privateKeyPem),
     allowedRepos: settings.allowedRepos
   });
 }
@@ -187,16 +371,114 @@ export async function getModelPoliciesView() {
   return policies.length > 0 ? policies : defaultModelPolicies;
 }
 
-export async function saveGitHubSettings(input: { token: string; allowedRepos: string[] }) {
+export async function saveGitHubSettings(
+  input: GitHubAppSettings & { allowedRepos: string[]; teamId?: string | null },
+  session?: Session
+) {
   const runtime = getRuntime();
-  const normalized = normalizeAllowedRepos(input.allowedRepos);
-  await runtime.storage.saveGitHubSettings(encryptSecret(input.token), normalized);
-  return getGitHubSettingsView();
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage GitHub App settings.");
+  }
+
+  const activeTeam = resolveActiveTeam(effectiveSession, input.teamId ?? null);
+  if (!activeTeam) {
+    throw new Error("Select a team before configuring GitHub access.");
+  }
+
+  const normalized = normalizeAllowedRepos(input.allowedRepos).map((repo) => ({
+    ...repo,
+    workspaceId: effectiveSession.workspace.id,
+    teamId: activeTeam.id
+  }));
+
+  await runtime.storage.saveGitHubSettings(
+    {
+      appId: input.appId,
+      installationId: input.installationId,
+      appSlug: input.appSlug,
+      privateKeyPem: encryptSecret(input.privateKeyPem)
+    },
+    normalized
+  );
+  return getGitHubSettingsView(effectiveSession);
 }
 
-export async function approveRun(runId: string, reviewer: string, notes?: string | null) {
+export async function listTeamsView(session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  return getRuntime().storage.listTeams(effectiveSession.workspace.id);
+}
+
+export async function saveTeam(input: unknown, session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage teams.");
+  }
+  return getRuntime().storage.createTeam(effectiveSession.workspace.id, TeamManagementSchema.parse(input));
+}
+
+export async function listWorkspaceMembersView(session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage workspace members.");
+  }
+  return getRuntime().storage.listWorkspaceMembers(effectiveSession.workspace.id);
+}
+
+export async function saveWorkspaceMember(input: unknown, session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage workspace members.");
+  }
+  return getRuntime().storage.upsertWorkspaceMember(effectiveSession.workspace.id, WorkspaceMemberInputSchema.parse(input));
+}
+
+export async function getApprovalPoliciesView(session?: Session, teamId?: string | null) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage approval policies.");
+  }
+  return getRuntime().storage.getApprovalPolicies(effectiveSession.workspace.id, teamId);
+}
+
+export async function saveApprovalPolicy(input: unknown, session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage approval policies.");
+  }
+  return getRuntime().storage.saveApprovalPolicy(effectiveSession.workspace.id, SaveApprovalPolicySchema.parse(input));
+}
+
+export async function getUsageView(filters: unknown, session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can view usage analytics.");
+  }
+  return getRuntime().storage.getUsageSummary(effectiveSession.workspace.id, UsageFiltersSchema.parse(filters));
+}
+
+export async function listKnowledgeSourcesView(session?: Session, teamId?: string | null) {
+  const effectiveSession = await getEffectiveSession(session);
+  const resolvedTeamId = teamId ?? resolveActiveTeam(effectiveSession)?.id;
+  if (!resolvedTeamId) return [];
+  assertTeamAccess(effectiveSession, resolvedTeamId);
+  return getRuntime().storage.listKnowledgeSources(effectiveSession.workspace.id, resolvedTeamId);
+}
+
+export async function saveKnowledgeSource(input: unknown, session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  const payload = KnowledgeSourceInputSchema.parse(input);
+  assertTeamAccess(effectiveSession, payload.teamId);
+  if (!canCreateTasks(getTeamRole(effectiveSession, payload.teamId), effectiveSession.workspaceRole)) {
+    throw new Error("You do not have permission to manage knowledge packs for this team.");
+  }
+  return getRuntime().storage.saveKnowledgeSource(effectiveSession.workspace.id, effectiveSession.email ?? effectiveSession.userId, payload);
+}
+
+export async function approveRun(runId: string, reviewer: string, notes?: string | null, session?: Session) {
   const runtime = getRuntime();
-  const detail = await runtime.storage.getRunDetail(runId);
+  const effectiveSession = await getEffectiveSession(session);
+  const detail = await getAuthorizedRunDetail(runtime, effectiveSession, runId);
   if (!detail) {
     throw new Error("Run not found.");
   }
@@ -204,8 +486,31 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     throw new Error("Run is not waiting for approval.");
   }
 
+  const policy = await runtime.storage.getEffectiveApprovalPolicy(effectiveSession.workspace.id, detail.run.teamId, detail.task.workflowTemplate);
+  assertApprovalPermission(effectiveSession, detail.run.teamId, policy);
+
+  const approvalsToDate = detail.approvals.filter((approval) => approval.action === "approve");
+  const required = requiredApprovals(policy, detail.task.workflowTemplate);
+  if (required > 1 && approvalsToDate.some((approval) => approval.reviewer === reviewer)) {
+    throw new Error("A second approval must come from a different reviewer.");
+  }
+
+  const approval = await runtime.storage.setApproval(runId, "approve", reviewer, notes ?? null);
+  if (approvalsToDate.length + 1 < required) {
+    await runtime.storage.addRunEvent({
+      runId,
+      eventType: "approval.requested",
+      status: "pending_human",
+      summary: `Approval recorded from ${reviewer}. Waiting for ${required - approvalsToDate.length - 1} more approval(s).`
+    });
+    await runtime.storage.updateRun(runId, {
+      status: "pending_human",
+      finalSummary: `Approval ${approvalsToDate.length + 1}/${required} recorded. Waiting for additional reviewer approval.`
+    });
+    return { approval, pullRequest: null, awaitingAdditionalApproval: true };
+  }
+
   if (!isGitHubWorkflowTemplate(detail.task.workflowTemplate)) {
-    const approval = await runtime.storage.setApproval(runId, "approve", reviewer, notes ?? null);
     await runtime.storage.addToolCall({
       runId,
       toolName: "workflow.releasePacket",
@@ -233,20 +538,15 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     return { approval, pullRequest: null };
   }
 
-  const githubSettings = await runtime.storage.getGitHubSettings();
-  const token = runtime.resolveGitHubToken?.(githubSettings.tokenEncrypted) ?? null;
-  if (!token) {
-    throw new Error("GitHub token is not configured.");
-  }
-
-  const approval = await runtime.storage.setApproval(runId, "approve", reviewer, notes ?? null);
+  const { settings, allowlist } = await resolveGitHubAppSettings(runtime, detail.run.teamId);
   const workspace = await runtime.github.createManagedWorkspace({
     runId,
     title: detail.run.title,
     targetRepo: detail.run.targetRepo,
     targetBranch: detail.run.targetBranch,
-    token,
-    allowlist: githubSettings.allowedRepos
+    token: null,
+    app: settings,
+    allowlist
   });
 
   await runtime.storage.addToolCall({
@@ -312,7 +612,8 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
   });
 
   const pullRequest = await runtime.github.createDraftPullRequest({
-    token,
+    token: null,
+    app: settings,
     targetRepo: detail.run.targetRepo,
     targetBranch: detail.run.targetBranch,
     branchName: workspace.branchName,
@@ -351,11 +652,17 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
   return { approval, pullRequest };
 }
 
-export async function rejectRun(runId: string, reviewer: string, notes?: string | null) {
+export async function rejectRun(runId: string, reviewer: string, notes?: string | null, session?: Session) {
   const runtime = getRuntime();
-  const detail = await runtime.storage.getRunDetail(runId);
+  const effectiveSession = await getEffectiveSession(session);
+  const detail = await getAuthorizedRunDetail(runtime, effectiveSession, runId);
   if (!detail) {
     throw new Error("Run not found.");
+  }
+  const policy = await runtime.storage.getEffectiveApprovalPolicy(effectiveSession.workspace.id, detail.run.teamId, detail.task.workflowTemplate);
+  assertApprovalPermission(effectiveSession, detail.run.teamId, policy);
+  if (policy.requireRejectNote && !notes?.trim()) {
+    throw new Error("This workflow requires a rejection note.");
   }
   const approval = await runtime.storage.setApproval(runId, "reject", reviewer, notes ?? null);
   await runtime.storage.addRunEvent({
@@ -372,11 +679,15 @@ export async function rejectRun(runId: string, reviewer: string, notes?: string 
   return approval;
 }
 
-export async function cancelRun(runId: string) {
+export async function cancelRun(runId: string, session?: Session) {
   const runtime = getRuntime();
-  const detail = await runtime.storage.getRunDetail(runId);
+  const effectiveSession = await getEffectiveSession(session);
+  const detail = await getAuthorizedRunDetail(runtime, effectiveSession, runId);
   if (!detail) {
     throw new Error("Run not found.");
+  }
+  if (!canOperateRuns(getTeamRole(effectiveSession, detail.run.teamId), effectiveSession.workspaceRole)) {
+    throw new Error("You do not have permission to cancel this run.");
   }
   if (!canCancelRun(detail.run.status)) {
     throw new Error("Run can no longer be cancelled.");
@@ -387,11 +698,15 @@ export async function cancelRun(runId: string) {
   });
 }
 
-export async function deleteRun(runId: string) {
+export async function deleteRun(runId: string, session?: Session) {
   const runtime = getRuntime();
-  const detail = await runtime.storage.getRunDetail(runId);
+  const effectiveSession = await getEffectiveSession(session);
+  const detail = await getAuthorizedRunDetail(runtime, effectiveSession, runId);
   if (!detail) {
     throw new Error("Run not found.");
+  }
+  if (!canOperateRuns(getTeamRole(effectiveSession, detail.run.teamId), effectiveSession.workspaceRole)) {
+    throw new Error("You do not have permission to delete this run.");
   }
   if (!canDeleteRun(detail.run.status)) {
     throw new Error("Only completed, failed, or cancelled runs can be deleted.");
@@ -400,11 +715,15 @@ export async function deleteRun(runId: string) {
   return runtime.storage.deleteRun(runId);
 }
 
-export async function retryRun(runId: string, payload: unknown) {
+export async function retryRun(runId: string, payload: unknown, session?: Session) {
   const runtime = getRuntime();
-  const detail = await runtime.storage.getRunDetail(runId);
+  const effectiveSession = await getEffectiveSession(session);
+  const detail = await getAuthorizedRunDetail(runtime, effectiveSession, runId);
   if (!detail) {
     throw new Error("Run not found.");
+  }
+  if (!canOperateRuns(getTeamRole(effectiveSession, detail.run.teamId), effectiveSession.workspaceRole)) {
+    throw new Error("You do not have permission to retry this run.");
   }
   if (!canRetryRun(detail.run.status)) {
     throw new Error("Only completed, failed, or cancelled runs can be retried.");
@@ -441,14 +760,19 @@ export async function getRuntimeInfo() {
   };
 }
 
-export async function saveGitHubSettingsFromPayload(payload: unknown) {
-  const data = payload as { token?: string; allowedRepos?: string[] };
-  if (!data.token || !Array.isArray(data.allowedRepos)) {
-    throw new Error("GitHub settings payload is invalid.");
-  }
-  return saveGitHubSettings({ token: data.token, allowedRepos: data.allowedRepos });
+export async function saveGitHubSettingsFromPayload(payload: unknown, session?: Session) {
+  const data = (payload ?? {}) as Record<string, unknown>;
+  const parsed = GitHubAppSettingsSchema.parse({
+    appId: data.appId,
+    installationId: data.installationId,
+    privateKeyPem: data.privateKeyPem,
+    ...(typeof data.appSlug === "string" && data.appSlug ? { appSlug: data.appSlug } : {})
+  });
+  const allowedRepos = Array.isArray(data.allowedRepos) ? data.allowedRepos.filter((item): item is string => typeof item === "string") : [];
+  const teamId = typeof data.teamId === "string" ? data.teamId : null;
+  return saveGitHubSettings({ ...parsed, allowedRepos, teamId }, session);
 }
 
-export async function applyApprovalAction(runId: string, action: ApprovalAction, reviewer: string, notes?: string | null) {
-  return action === "approve" ? approveRun(runId, reviewer, notes) : rejectRun(runId, reviewer, notes);
+export async function applyApprovalAction(runId: string, action: ApprovalAction, reviewer: string, notes?: string | null, session?: Session) {
+  return action === "approve" ? approveRun(runId, reviewer, notes, session) : rejectRun(runId, reviewer, notes, session);
 }

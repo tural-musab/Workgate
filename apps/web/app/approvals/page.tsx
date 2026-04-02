@@ -9,11 +9,12 @@ import { getServerLocale } from "@/lib/i18n-server";
 import { getWorkflowPresentation } from "@/lib/workflows";
 
 export default async function ApprovalsPage() {
-  const [session, runs, runtime, locale] = await Promise.all([requirePageSession(), listPendingApprovalRuns(), getRuntimeInfo(), getServerLocale()]);
+  const [session, runtime, locale] = await Promise.all([requirePageSession(), getRuntimeInfo(), getServerLocale()]);
+  const runs = await listPendingApprovalRuns(session);
   const messages = getMessages(locale);
 
   return (
-    <AppShell username={session.username} runtime={runtime}>
+    <AppShell session={session} runtime={runtime}>
       <div className="space-y-8">
         <header className="space-y-3">
           <div className="text-[0.72rem] uppercase tracking-[0.22em] text-cyan-200/70">{messages.approvalsPage.eyebrow}</div>

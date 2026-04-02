@@ -12,3 +12,4 @@ tmp
 .workgate
 playwright-report
 test-results
+*.tsbuildinfo

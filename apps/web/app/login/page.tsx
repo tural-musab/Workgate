@@ -2,12 +2,14 @@ import { Bot } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { LoginForm } from "@/components/login-form";
+import { getAppEnv } from "@/lib/env";
 import { getMessages } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
 
 export default async function LoginPage() {
   const locale = await getServerLocale();
   const messages = getMessages(locale);
+  const env = getAppEnv();
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(86,166,255,0.18),_transparent_38%),linear-gradient(180deg,_#07131d,_#081017_50%,_#050b10)] px-6 py-10 text-slate-100">
@@ -29,7 +31,7 @@ export default async function LoginPage() {
             <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-5">{messages.loginPage.featureTwo}</div>
           </div>
         </section>
-        <LoginForm />
+        <LoginForm authMode={env.authMode as "seed_admin" | "supabase"} />
       </div>
     </main>
   );

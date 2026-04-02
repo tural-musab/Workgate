@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createQueueAdapter, createStorageAdapter, type StorageAdapter } from "@workgate/db";
 
-import { createTask, installRuntimeForTests, rejectRun, resetRuntimeForTests } from "@/lib/app-service";
+import { createTask, installRuntimeForTests, rejectRun, resetRuntimeForTests, saveGitHubSettings } from "@/lib/app-service";
+
+async function configureGitHubApp(allowedRepos: string[] = ["owner/repo"]) {
+  await saveGitHubSettings({
+    appId: "123456",
+    installationId: "654321",
+    privateKeyPem: "-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----",
+    allowedRepos
+  });
+}
 
 function createMockGithub() {
   return {
@@ -69,8 +78,10 @@ describe("workflow scenarios", () => {
   it("executes a feature request through research, PM, and architecture artefacts", async () => {
     const storage = createStorageAdapter(undefined);
     installRuntime(storage);
+    await configureGitHubApp();
 
     const detail = await createTask({
+      teamId: "team_default",
       title: "Add approval queue filters",
       goal: "Plan and prepare the work needed to filter the operator approval queue by repository and status.",
       taskType: "feature",
@@ -107,8 +118,10 @@ describe("workflow scenarios", () => {
       }
     }) as StorageAdapter;
     installRuntime(storage);
+    await configureGitHubApp();
 
     const detail = await createTask({
+      teamId: "team_default",
       title: "Break reviewer isolation",
       goal: "Trigger the failure path when reviewer and engineer share the same provider family.",
       taskType: "bugfix",
@@ -129,8 +142,10 @@ describe("workflow scenarios", () => {
   it("cancels the run when the operator rejects it", async () => {
     const storage = createStorageAdapter(undefined);
     installRuntime(storage);
+    await configureGitHubApp();
 
     const detail = await createTask({
+      teamId: "team_default",
       title: "Reject this run",
       goal: "Exercise the operator rejection path after the workflow reaches approval.",
       taskType: "bugfix",
