@@ -1,0 +1,28 @@
+{
+  "name": "ai-teams",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "pnpm --filter @aiteams/web dev",
+    "build": "pnpm --filter @aiteams/web build",
+    "start": "pnpm --filter @aiteams/web start",
+    "lint": "pnpm exec eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "pnpm --filter @aiteams/db exec drizzle-kit generate",
+    "db:push": "pnpm --filter @aiteams/db exec drizzle-kit push"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@types/node": "^24.6.1",
+    "eslint": "^9.37.0",
+    "globals": "^16.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.1",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4"
+  }
+}
+

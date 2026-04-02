@@ -1,0 +1,15 @@
+{
+  "name": "@aiteams/github",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aiteams/shared": "workspace:*",
+    "octokit": "^5.0.4",
+    "slugify": "^1.6.6"
+  }
+}
+

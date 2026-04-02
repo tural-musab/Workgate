@@ -1,0 +1,155 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { createQueueAdapter, createStorageAdapter } from "@aiteams/db";
+
+import { installRuntimeForTests, resetRuntimeForTests, createTask, getRunDetail, saveGitHubSettings, approveRun } from "@/lib/app-service";
+
+function createMockGithub() {
+  return {
+    async fetchRepositoryContext({ targetRepo, targetBranch }: { targetRepo: string; targetBranch: string }) {
+      return {
+        markdown: `# GitHub repository context\n\n- Repository: ${targetRepo}\n- Branch requested: ${targetBranch}\n\n## Top-level entries\n- README.md\n- apps/\n- packages/\n`,
+        resolvedBranch: targetBranch,
+        topLevelEntries: ["README.md", "apps/", "packages/"],
+        selectedFiles: ["README.md", "packages/agents/package.json"]
+      };
+    },
+    async createManagedWorkspace({
+      runId,
+      title,
+      targetRepo,
+      allowlist
+    }: {
+      runId: string;
+      title: string;
+      targetRepo: string;
+      allowlist: Array<{ owner: string; repo: string; isAllowed: boolean }>;
+    }) {
+      if (!allowlist.some((repo) => repo.isAllowed && `${repo.owner}/${repo.repo}` === targetRepo)) {
+        throw new Error(`Repository ${targetRepo} is not allowlisted.`);
+      }
+      return {
+        workspacePath: `/tmp/${runId}`,
+        branchName: `aiteams/${runId}-${title.toLowerCase().replace(/\s+/g, "-")}`
+      };
+    },
+    async writeRunArtifactsToWorkspace() {},
+    async commitAndPushWorkspace() {},
+    async createDraftPullRequest({ branchName }: { branchName: string }) {
+      return {
+        branchName,
+        pullRequestUrl: `https://github.com/example/repo/pull/${branchName.length}`
+      };
+    }
+  };
+}
+
+async function waitFor<T>(producer: () => Promise<T>, predicate: (value: T) => boolean, timeoutMs = 4000): Promise<T> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const value = await producer();
+    if (predicate(value)) {
+      return value;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return producer();
+}
+
+function installMemoryRuntime() {
+  installRuntimeForTests({
+    storage: createStorageAdapter(undefined),
+    queue: createQueueAdapter({ databaseUrl: undefined, driver: "inline" }),
+    github: createMockGithub(),
+    started: false
+  });
+}
+
+beforeEach(() => {
+  process.env.AI_TEAMS_MOCK_MODE = "true";
+  installMemoryRuntime();
+});
+
+afterEach(() => {
+  resetRuntimeForTests();
+});
+
+describe("run orchestration", () => {
+  it("creates a run and emits review artefacts", async () => {
+    const detail = await createTask({
+      title: "Fix build cache mismatch",
+      goal: "Repair the build cache metadata path and produce the documentation needed for approval.",
+      taskType: "bugfix",
+      targetRepo: "owner/repo",
+      targetBranch: "main",
+      constraints: ["Keep the change set minimal"],
+      acceptanceCriteria: ["Run reaches approval gate"],
+      attachments: []
+    });
+
+    const completed = await waitFor(
+      async () => getRunDetail(detail.run.id),
+      (run): run is NonNullable<typeof run> => Boolean(run && run.run.status === "pending_human")
+    );
+
+    expect(completed.toolCalls.some((toolCall) => toolCall.toolName === "github.fetchRepositoryContext")).toBe(true);
+    expect(completed.artifacts.some((artifact) => artifact.artifactType === "review_report")).toBe(true);
+    expect(completed.artifacts.some((artifact) => artifact.artifactType === "test_report")).toBe(true);
+    expect(completed.steps.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("approves a run and creates a draft pull request", async () => {
+    const detail = await createTask({
+      title: "Fix notification drift",
+      goal: "Adjust notification output and prepare a draft pull request after approval.",
+      taskType: "bugfix",
+      targetRepo: "owner/repo",
+      targetBranch: "main",
+      constraints: [],
+      acceptanceCriteria: ["Draft PR is created after approval"],
+      attachments: []
+    });
+
+    await waitFor(
+      async () => getRunDetail(detail.run.id),
+      (run): run is NonNullable<typeof run> => Boolean(run && run.run.status === "pending_human")
+    );
+
+    await saveGitHubSettings({
+      token: "ghp_test_token",
+      allowedRepos: ["owner/repo"]
+    });
+
+    const result = await approveRun(detail.run.id, "operator");
+    const approved = await getRunDetail(detail.run.id);
+
+    expect(result.pullRequest.pullRequestUrl).toContain("github.com");
+    expect(approved?.run.status).toBe("completed");
+    expect(approved?.toolCalls.some((toolCall) => toolCall.toolName === "github.createDraftPullRequest")).toBe(true);
+  });
+
+  it("blocks approval when the repository is not allowlisted", async () => {
+    const detail = await createTask({
+      title: "Attempt disallowed repo write",
+      goal: "Verify that an unallowlisted repository cannot be pushed during approval.",
+      taskType: "bugfix",
+      targetRepo: "owner/repo",
+      targetBranch: "main",
+      constraints: [],
+      acceptanceCriteria: ["Approval should fail without matching allowlist entry"],
+      attachments: []
+    });
+
+    await waitFor(
+      async () => getRunDetail(detail.run.id),
+      (run): run is NonNullable<typeof run> => Boolean(run && run.run.status === "pending_human")
+    );
+
+    await saveGitHubSettings({
+      token: "ghp_test_token",
+      allowedRepos: ["someone-else/repo"]
+    });
+
+    await expect(approveRun(detail.run.id, "operator")).rejects.toThrow("not allowlisted");
+  });
+});

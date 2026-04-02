@@ -1,0 +1,19 @@
+{
+  "name": "@aiteams/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aiteams/shared": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "pg-boss": "12.15.0",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.4"
+  }
+}
+

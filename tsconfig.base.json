@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@aiteams/shared": ["packages/shared/src/index.ts"],
+      "@aiteams/db": ["packages/db/src/index.ts"],
+      "@aiteams/agents": ["packages/agents/src/index.ts"],
+      "@aiteams/github": ["packages/github/src/index.ts"]
+    }
+  }
+}
+
