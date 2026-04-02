@@ -9,6 +9,7 @@ import { canRetryFailedOnly, getRunDetail, getRuntimeInfo } from "@/lib/app-serv
 import { formatRelativeTime } from "@/lib/format";
 import { getArtifactTypeLabel, getMessages, getRoleLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
+import { getWorkflowPresentation } from "@/lib/workflows";
 import { canCancelRun, canDeleteRun, canRetryRun } from "@aiteams/shared";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -17,6 +18,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   if (!detail) notFound();
   const messages = getMessages(locale);
   const allowFailedOnlyRetry = canRetryFailedOnly(detail);
+  const workflow = getWorkflowPresentation(detail.run.workflowTemplate, locale);
 
   return (
     <AppShell username={session.username} runtime={runtime}>
@@ -32,8 +34,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             <p className="max-w-4xl text-sm leading-7 text-slate-300">{detail.task.goal}</p>
           </div>
           <div className="flex flex-wrap gap-3 text-sm text-slate-400">
-            <span>{detail.run.targetRepo}</span>
-            <span>{messages.runDetail.branchLabel}: {detail.run.targetBranch}</span>
+            <span className={`rounded-full border px-3 py-1 text-[0.7rem] uppercase tracking-[0.16em] ${workflow.accentBorder} ${workflow.accentText}`}>
+              {messages.runDetail.workflowLabel}: {workflow.name}
+            </span>
+            <span>{workflow.targetPrimaryLabel}: {detail.run.targetRepo}</span>
+            <span>{workflow.targetSecondaryLabel}: {detail.run.targetBranch}</span>
             {detail.run.branchName ? <span>{messages.runDetail.managedBranchLabel}: {detail.run.branchName}</span> : null}
           </div>
         </header>
@@ -129,6 +134,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                 <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.inputs}</h2>
               </div>
               <div className="mt-5 space-y-4 text-sm leading-6 text-slate-300">
+                <div>
+                  <div className="text-slate-500">{workflow.targetPrimaryLabel}</div>
+                  <div className="mt-2 rounded-[1.25rem] bg-slate-950/40 px-4 py-3 text-white">{detail.task.targetRepo}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">{workflow.targetSecondaryLabel}</div>
+                  <div className="mt-2 rounded-[1.25rem] bg-slate-950/40 px-4 py-3 text-white">{detail.task.targetBranch}</div>
+                </div>
                 <div>
                   <div className="text-slate-500">{messages.runDetail.constraints}</div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">

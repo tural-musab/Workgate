@@ -17,14 +17,14 @@ function createMockGithub() {
     async createManagedWorkspace({ runId }: { runId: string }) {
       return {
         workspacePath: `/tmp/${runId}`,
-        branchName: `aiteams/${runId}-workflow`
+        branchName: `workgate/${runId}-workflow`
       };
     },
     async writeRunArtifactsToWorkspace() {},
     async commitAndPushWorkspace() {},
     async createDraftPullRequest() {
       return {
-        branchName: "aiteams/test-workflow",
+        branchName: "workgate/test-workflow",
         pullRequestUrl: "https://github.com/example/repo/pull/1"
       };
     }

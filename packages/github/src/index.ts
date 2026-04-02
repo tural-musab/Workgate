@@ -248,7 +248,7 @@ function buildEmptyRepositoryContext(input: {
 
 export function buildManagedBranchName(runId: string, title: string) {
   const slug = slugify(title, { lower: true, strict: true }).slice(0, 48) || "task";
-  return `aiteams/${runId}-${slug}`;
+  return `workgate/${runId}-${slug}`;
 }
 
 export class GitHubExecutionService {
@@ -391,7 +391,7 @@ export class GitHubExecutionService {
     }
 
     const { owner, repo } = parseRepoSlug(input.targetRepo);
-    const workspacePath = await mkdtemp(path.join(tmpdir(), "aiteams-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "workgate-"));
     const branchName = buildManagedBranchName(input.runId, input.title);
     const remoteUrl = `https://x-access-token:${input.token}@github.com/${owner}/${repo}.git`;
 
@@ -406,7 +406,7 @@ export class GitHubExecutionService {
     runId: string;
     artifacts: Pick<ArtifactRecord, "title" | "content" | "artifactType">[];
   }) {
-    const basePath = path.join(input.workspacePath, ".aiteams", "runs", input.runId);
+    const basePath = path.join(input.workspacePath, ".workgate", "runs", input.runId);
     await mkdir(basePath, { recursive: true });
 
     const writes = input.artifacts.map((artifact) => {
@@ -422,10 +422,10 @@ export class GitHubExecutionService {
     runId: string;
     targetRepo: string;
   }) {
-    await runGit(["config", "user.name", "AI TeamS"], input.workspacePath);
-    await runGit(["config", "user.email", "bot@aiteams.local"], input.workspacePath);
-    await runGit(["add", ".aiteams"], input.workspacePath);
-    await runGit(["commit", "-m", `chore: AI TeamS run ${input.runId}`], input.workspacePath);
+    await runGit(["config", "user.name", "Workgate"], input.workspacePath);
+    await runGit(["config", "user.email", "bot@workgate.local"], input.workspacePath);
+    await runGit(["add", ".workgate"], input.workspacePath);
+    await runGit(["commit", "-m", `chore: Workgate run ${input.runId}`], input.workspacePath);
     await runGit(["push", "--set-upstream", "origin", input.branchName], input.workspacePath);
   }
 

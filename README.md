@@ -1,6 +1,6 @@
-# AI TeamS
+# Workgate
 
-AI TeamS is a local-first, cloud-ready operator console for an AI software office. The first version focuses on a single trusted operator who can submit tasks, watch agent runs progress, inspect artefacts, manage approvals, and push reviewed work into GitHub as draft pull requests.
+Workgate is a local-first, cloud-ready control plane for prebuilt AI teams. The current version focuses on a single trusted operator who can launch workflow templates, inspect artefacts, manage approvals, and release approved output through the right connector.
 
 ## Stack
 
@@ -33,7 +33,7 @@ If PostgreSQL is not available, the app falls back to an in-memory store and inl
 
 ## Supabase remote PostgreSQL
 
-AI TeamS is prepared for a remote Supabase PostgreSQL setup.
+Workgate is prepared for a remote Supabase PostgreSQL setup.
 
 1. Open `.env`.
 2. Replace `DATABASE_URL` with your real Supabase session-pooler or direct PostgreSQL connection string.
@@ -45,8 +45,11 @@ Until `DATABASE_URL` is real, the default `.env` keeps the queue in `inline` mod
 
 ## What ships in v1
 
-- Task intake and run orchestration
-- Fixed agent pipeline: router, coordinator, research, pm, architect, engineer, reviewer, docs
-- Review artefacts and approval queue
-- GitHub PAT settings and repo allowlist
-- Draft pull request creation after human approval
+- Workflow-first task intake and run orchestration
+- Fixed multi-role pipeline: router, coordinator, research, pm, architect, engineer, reviewer, docs
+- Active templates: `Software Delivery Team`, `RFP Response Team`
+- Coming-soon templates surfaced in UI: `Social Media Ops`, `Security Questionnaire Team`
+- Review artefacts, retry/cancel/delete controls, and approval queue
+- GitHub PAT settings and repo allowlist for the `Software Delivery Team`
+- Draft pull request creation after human approval for software runs
+- Approval-only completion flow for non-GitHub workflows such as RFP response work

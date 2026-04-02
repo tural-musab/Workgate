@@ -40,16 +40,28 @@ function parseDeliverable(raw: string): AgentDeliverable {
 }
 
 function buildMockDeliverable({ role, task, context }: AgentRuntimeContext): AgentDeliverable {
-  const roleHeadlines: Record<AgentRole, string> = {
-    router: "Routed toward the software-office pipeline with a review gate.",
-    coordinator: "Execution brief assembled for the fixed v1 pipeline.",
-    research: "Repository and product context summarized for the operator.",
-    pm: "Scoped product brief prepared with explicit MVP boundaries.",
-    architect: "Architecture memo focused on safe, reviewable implementation.",
-    engineer: "Patch summary drafted with a safe `.aiteams` repository artefact path.",
-    reviewer: "Independent review flagged remaining risks and missing validations.",
-    docs: "Run closure documents prepared for operator review."
-  };
+  const software = task.workflowTemplate === "software_delivery";
+  const roleHeadlines: Record<AgentRole, string> = software
+    ? {
+        router: "Routed toward the software delivery pipeline with a review gate.",
+        coordinator: "Execution brief assembled for the software workflow.",
+        research: "Repository and product context summarized for the operator.",
+        pm: "Scoped delivery brief prepared with explicit boundaries.",
+        architect: "Architecture memo focused on safe, reviewable implementation.",
+        engineer: "Patch summary drafted with a safe `.workgate` repository artefact path.",
+        reviewer: "Independent review flagged remaining risks and missing validations.",
+        docs: "Run closure documents prepared for operator review."
+      }
+    : {
+        router: "Routed toward the proposal response workflow with an approval gate.",
+        coordinator: "Proposal execution brief assembled for the selected opportunity.",
+        research: "Buyer, context, and source material summarized for the operator.",
+        pm: "Response strategy drafted with scope boundaries and evaluation focus.",
+        architect: "Solution-positioning memo prepared with trade-offs and response risks.",
+        engineer: "Response package drafted in a reviewable, client-facing structure.",
+        reviewer: "Independent review flagged weak claims, missing evidence, and approval risks.",
+        docs: "Final response documents prepared for operator approval."
+      };
 
   const body = [
     `## ${role.toUpperCase()} deliverable`,
@@ -58,14 +70,14 @@ function buildMockDeliverable({ role, task, context }: AgentRuntimeContext): Age
     "",
     "### Task",
     `- Title: ${task.title}`,
-    `- Repo: ${task.targetRepo}`,
-    `- Branch: ${task.targetBranch}`,
+    `- Target: ${task.targetRepo}`,
+    `- Source lane: ${task.targetBranch}`,
     "",
     "### Context",
     context,
     "",
     "### Recommended next action",
-    role === "reviewer" ? "Pause for operator approval before any external write action." : "Continue to the next fixed workflow stage."
+    role === "reviewer" ? "Pause for operator approval before any external release action." : "Continue to the next workflow stage."
   ].join("\n");
 
   return {
@@ -145,7 +157,7 @@ export async function invokeRoleDeliverable(input: AgentRuntimeContext): Promise
   }
 
   const response = await model.invoke([
-    new SystemMessage(buildRoleSystemPrompt(input.role)),
+    new SystemMessage(buildRoleSystemPrompt(input.role, input.task.workflowTemplate)),
     new HumanMessage(buildRoleUserPrompt(input.role, input.task, input.context))
   ]);
 
@@ -158,7 +170,7 @@ export async function invokeRoleDeliverable(input: AgentRuntimeContext): Promise
 }
 
 function buildRouterSystemPrompt() {
-  return `You are the routing layer for an AI software office.
+  return `You are the routing layer for a controlled AI workflow platform.
 Return strict JSON only with these keys:
 {
   "route": "research|pm|architect|engineer|docs|human",
@@ -170,16 +182,17 @@ Return strict JSON only with these keys:
 Rules:
 - Prefer "human" for security sign-off, legal, finance, payment, production release approval, hiring, firing, or contract work.
 - Prefer "research" for audits, investigation, discovery, analysis, and repository understanding.
-- Prefer "architect" for system design, migration planning, architecture choices, and implementation planning.
-- Prefer "engineer" for execution, bugfix, implementation, and concrete change work.
+- Prefer "architect" for system design, migration planning, architecture choices, proposal strategy, and implementation planning.
+- Prefer "engineer" for execution, bugfix, implementation, concrete change work, or response package drafting.
 - Keep the reason concise and factual.`;
 }
 
 function buildRouterUserPrompt(task: TaskRequest, deterministic: ResolvedTaskRoute, shouldEscalate: boolean) {
-  return `Task title: ${task.title}
+  return `Workflow template: ${task.workflowTemplate}
+Task title: ${task.title}
 Task type: ${task.taskType}
-Target repo: ${task.targetRepo}
-Target branch: ${task.targetBranch}
+Primary target: ${task.targetRepo}
+Source lane: ${task.targetBranch}
 
 Goal:
 ${task.goal}
@@ -223,8 +236,8 @@ function buildRoutingHeuristics(task: TaskRequest) {
   ];
 
   const researchTerms = ["audit", "investigate", "research", "analyze", "analysis", "discover", "explore", "evaluate"];
-  const architectureTerms = ["architecture", "architect", "migration", "design", "system design", "plan", "roadmap", "refactor"];
-  const implementationTerms = ["implement", "build", "fix", "bug", "repair", "update", "change", "add"];
+  const architectureTerms = ["architecture", "architect", "migration", "design", "system design", "plan", "roadmap", "refactor", "proposal strategy", "win theme"];
+  const implementationTerms = ["implement", "build", "fix", "bug", "repair", "update", "change", "add", "draft response", "proposal", "rfp", "questionnaire"];
 
   const highRisk = hasAny(highRiskTerms);
   const researchSignal = task.taskType === "research" || hasAny(researchTerms);
@@ -268,7 +281,7 @@ export function routeTaskDeterministic(task: TaskRequest): ResolvedTaskRoute {
     return {
       route: "research",
       risk: "low",
-      reason: `Task type ${task.taskType} maps cleanly to repository or product analysis work.`,
+      reason: `Task type ${task.taskType} maps cleanly to analysis-oriented workflow work.`,
       needsHuman: false,
       source: "rule"
     };

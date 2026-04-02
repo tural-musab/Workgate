@@ -5,6 +5,7 @@ export const taskRequests = pgTable("task_requests", {
   title: text("title").notNull(),
   goal: text("goal").notNull(),
   taskType: text("task_type").notNull(),
+  workflowTemplate: text("workflow_template").default("software_delivery").notNull(),
   targetRepo: text("target_repo").notNull(),
   targetBranch: text("target_branch").notNull(),
   constraints: jsonb("constraints").$type<string[]>().notNull(),
@@ -19,6 +20,7 @@ export const runs = pgTable("runs", {
   status: text("status").notNull(),
   title: text("title").notNull(),
   taskType: text("task_type").notNull(),
+  workflowTemplate: text("workflow_template").default("software_delivery").notNull(),
   targetRepo: text("target_repo").notNull(),
   targetBranch: text("target_branch").notNull(),
   branchName: text("branch_name"),
@@ -94,4 +96,3 @@ export const appSettings = pgTable("app_settings", {
   value: jsonb("value").$type<Record<string, unknown>>().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull()
 });
-

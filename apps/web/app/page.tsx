@@ -11,6 +11,7 @@ import { getDashboardData } from "@/lib/app-service";
 import { formatRelativeTime } from "@/lib/format";
 import { getMessages, getTaskTypeLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
+import { getWorkflowPresentation } from "@/lib/workflows";
 import { canCancelRun, canDeleteRun, canRetryRun } from "@aiteams/shared";
 
 export default async function DashboardPage() {
@@ -64,36 +65,42 @@ export default async function DashboardPage() {
                 {data.runs.length === 0 ? (
                   <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-8 text-sm text-slate-400">{messages.dashboard.noRuns}</div>
                 ) : (
-                  data.runs.map((run) => (
-                    <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035]">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="min-w-0 space-y-2">
-                          <div className="flex flex-wrap items-center gap-3">
-                            <StatusBadge status={run.status} />
-                            <span className="font-[var(--font-mono)] text-xs text-slate-400">{run.id}</span>
+                  data.runs.map((run) => {
+                    const workflow = getWorkflowPresentation(run.workflowTemplate, locale);
+                    return (
+                      <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035]">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <StatusBadge status={run.status} />
+                              <span className="font-[var(--font-mono)] text-xs text-slate-400">{run.id}</span>
+                              <span className={`rounded-full border px-3 py-1 text-[0.68rem] uppercase tracking-[0.16em] ${workflow.accentBorder} ${workflow.accentText}`}>
+                                {workflow.name}
+                              </span>
+                            </div>
+                            <Link href={`/runs/${run.id}`} className="block text-lg font-medium text-white transition hover:text-cyan-100">
+                              {run.title}
+                            </Link>
+                            <div className="text-sm leading-6 text-slate-400">
+                              {workflow.targetPrimaryLabel}: {run.targetRepo} · {workflow.targetSecondaryLabel}: {run.targetBranch}
+                            </div>
                           </div>
-                          <Link href={`/runs/${run.id}`} className="block text-lg font-medium text-white transition hover:text-cyan-100">
-                            {run.title}
-                          </Link>
-                          <div className="text-sm leading-6 text-slate-400">
-                            {run.targetRepo} · {messages.common.branch}: {run.targetBranch}
+                          <div className="flex flex-col items-start gap-3 lg:items-end">
+                            <div className="flex items-center gap-8 text-sm text-slate-300">
+                              <span>{formatRelativeTime(run.updatedAt, locale)}</span>
+                              <span className="font-[var(--font-mono)] text-xs uppercase tracking-[0.18em] text-slate-500">{getTaskTypeLabel(run.taskType, messages)}</span>
+                            </div>
+                            <RunActions
+                              runId={run.id}
+                              allowCancel={canCancelRun(run.status)}
+                              allowDelete={canDeleteRun(run.status)}
+                              allowRetry={canRetryRun(run.status)}
+                            />
                           </div>
-                        </div>
-                        <div className="flex flex-col items-start gap-3 lg:items-end">
-                          <div className="flex items-center gap-8 text-sm text-slate-300">
-                            <span>{formatRelativeTime(run.updatedAt, locale)}</span>
-                            <span className="font-[var(--font-mono)] text-xs uppercase tracking-[0.18em] text-slate-500">{getTaskTypeLabel(run.taskType, messages)}</span>
-                          </div>
-                          <RunActions
-                            runId={run.id}
-                            allowCancel={canCancelRun(run.status)}
-                            allowDelete={canDeleteRun(run.status)}
-                            allowRetry={canRetryRun(run.status)}
-                          />
                         </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>
@@ -131,22 +138,30 @@ export default async function DashboardPage() {
                 {data.approvals.length === 0 ? (
                   <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-7 text-sm text-slate-400">{messages.dashboard.noApprovals}</div>
                 ) : (
-                  data.approvals.map((run) => (
-                    <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-4 transition hover:bg-white/[0.035]">
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="space-y-1">
-                            <Link href={`/runs/${run.id}`} className="text-sm font-medium text-white transition hover:text-cyan-100">
-                              {run.title}
-                            </Link>
-                            <div className="text-xs text-slate-400">{run.targetRepo}</div>
+                  data.approvals.map((run) => {
+                    const workflow = getWorkflowPresentation(run.workflowTemplate, locale);
+                    return (
+                      <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-4 transition hover:bg-white/[0.035]">
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="space-y-1">
+                              <Link href={`/runs/${run.id}`} className="text-sm font-medium text-white transition hover:text-cyan-100">
+                                {run.title}
+                              </Link>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                                <span>{run.targetRepo}</span>
+                                <span className={`rounded-full border px-2 py-1 uppercase tracking-[0.14em] ${workflow.accentBorder} ${workflow.accentText}`}>
+                                  {workflow.name}
+                                </span>
+                              </div>
+                            </div>
+                            <StatusBadge status={run.status} />
                           </div>
-                          <StatusBadge status={run.status} />
+                          <RunActions runId={run.id} allowCancel={canCancelRun(run.status)} />
                         </div>
-                        <RunActions runId={run.id} allowCancel={canCancelRun(run.status)} />
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>

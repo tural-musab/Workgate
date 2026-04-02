@@ -16,6 +16,9 @@ import {
   type RunDetail,
   type RunRecord,
   type TaskRequest,
+  isActiveWorkflowTemplate,
+  isGitHubWorkflowTemplate,
+  isValidGitHubRepoSlug,
   GitHubSettingsViewSchema,
   RetryRunPayloadSchema,
   TaskRequestSchema,
@@ -30,7 +33,7 @@ type GitHubExecutor = Pick<
   "fetchRepositoryContext" | "createManagedWorkspace" | "writeRunArtifactsToWorkspace" | "commitAndPushWorkspace" | "createDraftPullRequest"
 >;
 
-const RETRY_ATTACHMENT_NAME = ".aiteams-retry.json";
+const RETRY_ATTACHMENT_NAME = ".workgate-retry.json";
 
 const artifactRoleMap: Record<ArtifactType, AgentRole> = {
   research_note: "research",
@@ -72,6 +75,7 @@ function toTaskRequest(task: RunDetail["task"]): TaskRequest {
     title: task.title,
     goal: task.goal,
     taskType: task.taskType,
+    workflowTemplate: task.workflowTemplate,
     targetRepo: task.targetRepo,
     targetBranch: task.targetBranch,
     constraints: task.constraints,
@@ -89,6 +93,43 @@ function buildRetryAttachment(seed: RetrySeed) {
     name: RETRY_ATTACHMENT_NAME,
     type: "json" as const,
     content: JSON.stringify(seed)
+  };
+}
+
+function buildWorkflowContextAttachment(task: TaskRequest) {
+  if (task.workflowTemplate === "rfp_response") {
+    return {
+      name: "workflow-context.md",
+      type: "markdown" as const,
+      content: [
+        "# Workflow context",
+        "",
+        "- Workflow: RFP Response Team",
+        `- Account / opportunity: ${task.targetRepo}`,
+        `- Knowledge source: ${task.targetBranch}`,
+        "",
+        "## Operating model",
+        "- Produce capture-oriented, reviewable proposal work.",
+        "- Optimize for clarity, bid compliance, and approval readiness.",
+        "- Do not imply GitHub execution or source-code changes."
+      ].join("\n")
+    };
+  }
+
+  return {
+    name: "workflow-context.md",
+    type: "markdown" as const,
+    content: [
+      "# Workflow context",
+      "",
+      "- Workflow: Software Delivery Team",
+      `- Target repository: ${task.targetRepo}`,
+      `- Target branch: ${task.targetBranch}`,
+      "",
+      "## Operating model",
+      "- Produce engineering-focused outputs and route them through human review.",
+      "- GitHub write operations remain blocked until approval."
+    ].join("\n")
   };
 }
 
@@ -284,7 +325,10 @@ function getRuntime() {
 async function buildWorkflowTask(detail: RunDetail, runtime: AppRuntime): Promise<{ task: TaskRequest; startOptions?: WorkflowStartOptions }> {
   const githubSettings = await runtime.storage.getGitHubSettings();
   const { task: sanitizedTask, retrySeed } = extractRetrySeed(toTaskRequest(detail.task));
-  const baseTask: TaskRequest = sanitizedTask;
+  const baseTask: TaskRequest = {
+    ...sanitizedTask,
+    attachments: [...sanitizedTask.attachments, buildWorkflowContextAttachment(sanitizedTask)]
+  };
   const startOptions = retrySeed
     ? ({
         startAt: retrySeed.startAt,
@@ -293,6 +337,22 @@ async function buildWorkflowTask(detail: RunDetail, runtime: AppRuntime): Promis
         ...(retrySeed.route ? { route: retrySeed.route } : {})
       } satisfies WorkflowStartOptions)
     : undefined;
+
+  if (!isGitHubWorkflowTemplate(detail.task.workflowTemplate)) {
+    await runtime.storage.addToolCall({
+      runId: detail.run.id,
+      toolName: "workflow.context",
+      category: "read",
+      status: "completed",
+      input: detail.task.workflowTemplate,
+      output: `Using non-GitHub context for ${detail.task.workflowTemplate}.`
+    });
+
+    return {
+      task: baseTask,
+      ...(startOptions ? { startOptions } : {})
+    };
+  }
 
   try {
     const token = githubSettings.tokenEncrypted ? decryptSecret(githubSettings.tokenEncrypted) : null;
@@ -493,6 +553,12 @@ function normalizeAllowedRepos(items: string[]) {
 export async function createTask(input: unknown) {
   const runtime = await ensureRuntimeStarted();
   const task = TaskRequestSchema.parse(input);
+  if (!isActiveWorkflowTemplate(task.workflowTemplate)) {
+    throw new Error("This workflow template is not active yet.");
+  }
+  if (isGitHubWorkflowTemplate(task.workflowTemplate) && !isValidGitHubRepoSlug(task.targetRepo)) {
+    throw new Error("Software Delivery Team requires a valid GitHub repository slug.");
+  }
   const sanitizedTask: TaskRequest = {
     ...task,
     attachments: task.attachments.filter((attachment) => !isRetryAttachment(attachment))
@@ -564,7 +630,7 @@ function buildPullRequestBody(detail: RunDetail) {
     .join("\n\n");
 
   return [
-    "AI TeamS created this draft pull request after operator approval.",
+    "Workgate created this draft pull request after operator approval.",
     "",
     "### Run metadata",
     `- Run ID: ${detail.run.id}`,
@@ -583,6 +649,23 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
   }
   if (detail.run.status !== "pending_human") {
     throw new Error("Run is not waiting for approval.");
+  }
+
+  if (!isGitHubWorkflowTemplate(detail.task.workflowTemplate)) {
+    const approval = await runtime.storage.setApproval(runId, "approve", reviewer, notes ?? null);
+    await runtime.storage.addToolCall({
+      runId,
+      toolName: "workflow.releasePacket",
+      category: "write",
+      status: "completed",
+      input: detail.task.workflowTemplate,
+      output: "Final response packet marked as approved without external repository writes."
+    });
+    await runtime.storage.updateRun(runId, {
+      status: "completed",
+      finalSummary: `Approved by ${approval.reviewer}. Final response packet is ready for delivery.`
+    });
+    return { approval, pullRequest: null };
   }
 
   const githubSettings = await runtime.storage.getGitHubSettings();
@@ -621,7 +704,7 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     toolName: "github.writeRunArtifacts",
     category: "write",
     status: "completed",
-    input: ".aiteams/runs",
+    input: ".workgate/runs",
     output: `Prepared artifacts for ${runId}`
   });
 
@@ -646,7 +729,7 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     targetRepo: detail.run.targetRepo,
     targetBranch: detail.run.targetBranch,
     branchName: workspace.branchName,
-    title: `[AI TeamS] ${detail.run.title}`,
+    title: `[Workgate] ${detail.run.title}`,
     body: buildPullRequestBody(detail)
   });
 

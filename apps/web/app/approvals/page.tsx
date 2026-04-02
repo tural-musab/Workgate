@@ -6,6 +6,7 @@ import { requirePageSession } from "@/lib/auth";
 import { getRuntimeInfo, listPendingApprovalRuns } from "@/lib/app-service";
 import { getMessages } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
+import { getWorkflowPresentation } from "@/lib/workflows";
 
 export default async function ApprovalsPage() {
   const [session, runs, runtime, locale] = await Promise.all([requirePageSession(), listPendingApprovalRuns(), getRuntimeInfo(), getServerLocale()]);
@@ -25,18 +26,25 @@ export default async function ApprovalsPage() {
             {runs.length === 0 ? (
               <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-8 text-sm text-slate-400">{messages.approvalsPage.empty}</div>
             ) : (
-              runs.map((run) => (
-                <Link key={run.id} href={`/runs/${run.id}`} className="flex flex-col gap-3 rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035] lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-2">
-                    <StatusBadge status={run.status} />
-                    <div className="text-xl font-medium text-white">{run.title}</div>
-                    <div className="text-sm text-slate-400">
-                      {run.targetRepo} {messages.common.onRepositoryBranch} {run.targetBranch}
+              runs.map((run) => {
+                const workflow = getWorkflowPresentation(run.workflowTemplate, locale);
+                return (
+                  <Link key={run.id} href={`/runs/${run.id}`} className="flex flex-col gap-3 rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035] lg:flex-row lg:items-center lg:justify-between">
+                    <div className="space-y-2">
+                      <StatusBadge status={run.status} />
+                      <div className="text-xl font-medium text-white">{run.title}</div>
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+                        <span>{workflow.targetPrimaryLabel}: {run.targetRepo}</span>
+                        <span>{workflow.targetSecondaryLabel}: {run.targetBranch}</span>
+                        <span className={`rounded-full border px-3 py-1 text-[0.68rem] uppercase tracking-[0.14em] ${workflow.accentBorder} ${workflow.accentText}`}>
+                          {workflow.name}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-sm text-cyan-200">{messages.common.openRunDetail}</div>
-                </Link>
-              ))
+                    <div className="text-sm text-cyan-200">{messages.common.openRunDetail}</div>
+                  </Link>
+                );
+              })
             )}
           </div>
         </section>

@@ -33,7 +33,7 @@ describe("repository context helpers", () => {
       selectedFiles: [
         {
           path: "README.md",
-          content: "# AI TeamS\n\nA workspace for AI software-office orchestration."
+          content: "# Workgate\n\nA control plane for workflow-based AI team orchestration."
         }
       ]
     });

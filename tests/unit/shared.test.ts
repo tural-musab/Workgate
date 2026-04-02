@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildManagedBranchName } from "@aiteams/github";
-import { TaskRequestSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus } from "@aiteams/shared";
+import { TaskRequestSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus, isValidGitHubRepoSlug } from "@aiteams/shared";
 
 describe("shared contracts", () => {
   it("validates task payloads", () => {
@@ -17,21 +17,12 @@ describe("shared contracts", () => {
     });
 
     expect(parsed.targetRepo).toBe("owner/repo");
+    expect(parsed.workflowTemplate).toBe("software_delivery");
   });
 
-  it("rejects invalid repository slugs", () => {
-    expect(() =>
-      TaskRequestSchema.parse({
-        title: "Broken task",
-        goal: "This should fail because the repository slug is invalid.",
-        taskType: "bugfix",
-        targetRepo: "invalid-slug",
-        targetBranch: "main",
-        constraints: [],
-        acceptanceCriteria: [],
-        attachments: []
-      })
-    ).toThrow();
+  it("exposes GitHub slug validation for software workflows", () => {
+    expect(isValidGitHubRepoSlug("owner/repo")).toBe(true);
+    expect(isValidGitHubRepoSlug("invalid-slug")).toBe(false);
   });
 
   it("enforces the planned run state transitions", () => {
@@ -41,7 +32,7 @@ describe("shared contracts", () => {
   });
 
   it("creates the managed branch naming pattern", () => {
-    expect(buildManagedBranchName("run-123", "Fix build cache mismatch")).toContain("aiteams/run-123-fix-build-cache-mismatch");
+    expect(buildManagedBranchName("run-123", "Fix build cache mismatch")).toContain("workgate/run-123-fix-build-cache-mismatch");
   });
 
   it("exposes run action guards for the operator UI", () => {

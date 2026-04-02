@@ -1,6 +1,6 @@
 # Supabase Remote Setup
 
-AI TeamS supports a remote Supabase PostgreSQL deployment for durable storage and `pg-boss`.
+Workgate supports a remote Supabase PostgreSQL deployment for durable storage and `pg-boss`.
 
 ## Recommended connection type
 

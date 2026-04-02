@@ -8,6 +8,7 @@ import {
   type TaskRoute,
   type RunStatus,
   type TaskRequest,
+  type WorkflowTemplateId,
   defaultModelPolicies
 } from "@aiteams/shared";
 
@@ -92,6 +93,32 @@ function makeArtifact(artifactType: ArtifactType, title: string, content: string
   return [{ artifactType, title, content }];
 }
 
+function titleForArtifact(template: WorkflowTemplateId, artifactType: ArtifactType) {
+  if (template === "rfp_response") {
+    const titles: Record<ArtifactType, string> = {
+      research_note: "Capture research note",
+      prd: "Response strategy brief",
+      architecture_memo: "Solution positioning memo",
+      patch_summary: "Response draft",
+      test_report: "Approval readiness checklist",
+      review_report: "Red-team review",
+      changelog: "Final proposal packet"
+    };
+    return titles[artifactType];
+  }
+
+  const titles: Record<ArtifactType, string> = {
+    research_note: "Research note",
+    prd: "Product brief",
+    architecture_memo: "Architecture memo",
+    patch_summary: "Patch summary",
+    test_report: "Test report",
+    review_report: "Review report",
+    changelog: "Change summary"
+  };
+  return titles[artifactType];
+}
+
 export interface WorkflowResult {
   status: RunStatus;
   route: TaskRoute;
@@ -154,14 +181,14 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
       const result = await runRole("research", state, policies, state.deliverables.coordinator?.deliverable ?? "");
       return {
         ...result,
-        artifacts: makeArtifact("research_note", "Research note", result.deliverables.research?.deliverable ?? "")
+        artifacts: makeArtifact("research_note", titleForArtifact(state.task.workflowTemplate, "research_note"), result.deliverables.research?.deliverable ?? "")
       };
     })
     .addNode("pm", async (state) => {
       const result = await runRole("pm", state, policies, state.deliverables.research?.deliverable ?? "");
       return {
         ...result,
-        artifacts: makeArtifact("prd", "Product brief", result.deliverables.pm?.deliverable ?? "")
+        artifacts: makeArtifact("prd", titleForArtifact(state.task.workflowTemplate, "prd"), result.deliverables.pm?.deliverable ?? "")
       };
     })
     .addNode("architect", async (state) => {
@@ -170,7 +197,11 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
       return {
         ...result,
         status: "executing",
-        artifacts: makeArtifact("architecture_memo", "Architecture memo", result.deliverables.architect?.deliverable ?? "")
+        artifacts: makeArtifact(
+          "architecture_memo",
+          titleForArtifact(state.task.workflowTemplate, "architecture_memo"),
+          result.deliverables.architect?.deliverable ?? ""
+        )
       };
     })
     .addNode("engineer", async (state) => {
@@ -178,7 +209,7 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
       const result = await runRole("engineer", state, policies, context);
       return {
         ...result,
-        artifacts: makeArtifact("patch_summary", "Patch summary", result.deliverables.engineer?.deliverable ?? "")
+        artifacts: makeArtifact("patch_summary", titleForArtifact(state.task.workflowTemplate, "patch_summary"), result.deliverables.engineer?.deliverable ?? "")
       };
     })
     .addNode("reviewer", async (state) => {
@@ -192,7 +223,7 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
       return {
         ...result,
         status: "reviewing",
-        artifacts: makeArtifact("review_report", "Review report", result.deliverables.reviewer?.deliverable ?? ""),
+        artifacts: makeArtifact("review_report", titleForArtifact(state.task.workflowTemplate, "review_report"), result.deliverables.reviewer?.deliverable ?? ""),
         needsHuman: true
       };
     })
@@ -202,21 +233,30 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
         .join("\n\n");
       const result = await runRole("docs", state, policies, context);
       const changelog = result.deliverables.docs?.deliverable ?? "";
-      const testReport = [
-        "## Test report",
-        "",
-        "- Pipeline executed through router, coordinator, research, pm, architect, engineer, reviewer, docs.",
-        "- Human approval is required before branch push or draft pull request creation.",
-        "- Operator should validate repository diff before approving."
-      ].join("\n");
+      const testReport =
+        state.task.workflowTemplate === "rfp_response"
+          ? [
+              "## Approval readiness checklist",
+              "",
+              "- Workflow executed through router, coordinator, research, pm, architect, engineer, reviewer, docs.",
+              "- Human approval is required before the proposal packet is treated as ready for external delivery.",
+              "- Operator should validate claims, pricing assumptions, and evidence coverage before approval."
+            ].join("\n")
+          : [
+              "## Test report",
+              "",
+              "- Pipeline executed through router, coordinator, research, pm, architect, engineer, reviewer, docs.",
+              "- Human approval is required before branch push or draft pull request creation.",
+              "- Operator should validate repository diff before approving."
+            ].join("\n");
 
       return {
         ...result,
         status: "pending_human",
         finalSummary: result.deliverables.docs?.summary ?? "Run completed and waiting for approval.",
         artifacts: [
-          { artifactType: "test_report", title: "Test report", content: testReport },
-          { artifactType: "changelog", title: "Change summary", content: changelog }
+          { artifactType: "test_report", title: titleForArtifact(state.task.workflowTemplate, "test_report"), content: testReport },
+          { artifactType: "changelog", title: titleForArtifact(state.task.workflowTemplate, "changelog"), content: changelog }
         ],
         needsHuman: true
       };

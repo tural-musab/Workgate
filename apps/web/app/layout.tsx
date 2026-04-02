@@ -19,8 +19,8 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI TeamS",
-  description: "Operator dashboard for an AI software office."
+  title: "Workgate",
+  description: "Prebuilt AI teams with approvals, audit trails, and controlled release gates."
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

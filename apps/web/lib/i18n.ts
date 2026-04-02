@@ -21,8 +21,9 @@ export function getDateFnsLocale(locale: Locale) {
 
 const en = {
   common: {
-    brand: "AI TeamS",
+    brand: "Workgate",
     language: "Language",
+    workflow: "Workflow",
     branch: "Branch",
     managedBranch: "Managed branch",
     none: "None",
@@ -50,16 +51,16 @@ const en = {
     settings: "Settings"
   },
   appShell: {
-    title: "Operator console",
-    description: "Route work, inspect runs, gate approvals, and push reviewed changes into GitHub from one control surface."
+    title: "Workflow control plane",
+    description: "Run prebuilt AI teams, inspect every handoff, and stop high-stakes output behind a human gate."
   },
   loginPage: {
-    eyebrow: "AI TeamS",
-    title: "Single-pane control for your AI software office",
+    eyebrow: "Workgate",
+    title: "Prebuilt AI teams, human-approved",
     description:
-      "Route work, inspect agent artefacts, enforce approvals, and ship draft pull requests from a restrained operator dashboard instead of a loose collection of scripts.",
-    featureOne: "Fixed pipeline across routing, planning, engineering, review, and docs.",
-    featureTwo: "GitHub writes are blocked until the operator explicitly approves the run."
+      "Launch workflow-specific AI teams for software delivery, proposal operations, and other approval-heavy work from one controlled operator surface.",
+    featureOne: "Template-first teams with routing, planning, review, and documentation already wired in.",
+    featureTwo: "High-stakes outputs pause for human approval before they leave the platform."
   },
   loginForm: {
     title: "Operator sign-in",
@@ -70,10 +71,10 @@ const en = {
     pending: "Signing in..."
   },
   dashboard: {
-    eyebrow: "AI software office",
-    title: "Runs, approvals, and repo output in one pane",
+    eyebrow: "Workflow platform",
+    title: "Template-led AI work in one control surface",
     description:
-      "Submit work against trusted repositories, inspect each role output, and stop every branch push behind an explicit operator gate.",
+      "Launch prebuilt teams, inspect every run, and keep client-ready or repo-bound output behind explicit approval gates.",
     totalRuns: "Total runs",
     pendingApprovals: "Pending approvals",
     failedRuns: "Failed runs",
@@ -82,18 +83,23 @@ const en = {
     noRuns: "No runs yet. Launch the first task above.",
     controlNotes: "Control notes",
     operatorReminders: "Operator reminders",
-    noteOne: "Branch push and draft pull request creation are blocked until you approve a run.",
-    noteTwo: "GitHub execution is limited to repositories on the explicit allowlist stored in settings.",
-    noteThree: "Without live PostgreSQL, the product stays usable through in-memory storage and an inline queue driver.",
+    noteOne: "Every workflow pauses for human approval before external release or GitHub write actions.",
+    noteTwo: "GitHub execution applies only to the Software Delivery Team and only for repositories on the explicit allowlist.",
+    noteThree: "Without live PostgreSQL, the platform stays usable through in-memory storage and an inline queue driver.",
     approvalQueue: "Approval queue",
     waitingOnYou: "Waiting on you",
     noApprovals: "No runs are waiting for approval."
   },
   taskComposer: {
-    eyebrow: "New task",
-    title: "Launch a software-office run",
+    eyebrow: "New run",
+    title: "Launch a workflow team",
     description:
-      "Submit a repository target, the job to be done, and the acceptance bar. The fixed pipeline will route, plan, review, and hold for approval before any external write action.",
+      "Choose a workflow template, define the target and success bar, then let the team route, plan, review, and stop for approval before anything ships.",
+    workflowEyebrow: "Workflow library",
+    workflowTitle: "Pick the team that should run this job",
+    workflowDescription: "Active templates can run now. The next verticals are shown here so the product direction stays visible.",
+    activeNow: "Active now",
+    comingSoon: "Coming soon",
     titleLabel: "Title",
     titlePlaceholder: "Fix flaky CI notifications",
     taskTypeLabel: "Task type",
@@ -111,21 +117,21 @@ const en = {
     attachmentNamePlaceholder: "brief.md",
     attachmentContentLabel: "Attachment content",
     attachmentContentPlaceholder: "Optional supporting context, logs, or issue notes",
-    idleHint: "The run will stop for approval before any push or PR action.",
+    idleHint: "The run will stop for approval before any external action.",
     submit: "Start run",
     pending: "Starting..."
   },
   approvalsPage: {
     eyebrow: "Approval queue",
     title: "Runs blocked behind human review",
-    description: "This queue is the last safeguard before AI TeamS writes branches or opens draft pull requests on GitHub.",
+    description: "This queue is the final gate before Workgate releases client-ready output or writes branches in GitHub.",
     empty: "No pending approvals right now."
   },
   settingsPage: {
     eyebrow: "Settings",
     title: "Runtime and integration controls",
     description:
-      "GitHub is the only external integration in v1. Providers remain multi-model by policy, but branch push and draft PR creation stay behind a single operator account.",
+      "Workgate keeps workflow policy, model routing, and external connectors behind one operator surface. In v1, GitHub applies only to the Software Delivery Team.",
     runtimeEyebrow: "Runtime",
     runtimeTitle: "Local execution",
     storageMode: "Storage mode",
@@ -138,7 +144,7 @@ const en = {
     eyebrow: "GitHub",
     title: "Repository access",
     description:
-      "Store a fine-grained PAT and an explicit repo allowlist. AI TeamS will refuse execution against repositories outside this list.",
+      "Store a fine-grained PAT and an explicit repo allowlist. Workgate uses this connector only for the Software Delivery Team.",
     currentToken: "Current token",
     patLabel: "Fine-grained PAT",
     reposLabel: "Allowlisted repos",
@@ -170,6 +176,7 @@ const en = {
     confirmDelete: "Delete this run and all related logs? This cannot be undone."
   },
   runDetail: {
+    workflowLabel: "Workflow",
     branchLabel: "Branch",
     managedBranchLabel: "Managed branch",
     executionTimeline: "Execution timeline",
@@ -228,6 +235,8 @@ const en = {
   apiMessages: {
     invalidCredentials: "Invalid credentials.",
     unableToStartRun: "Unable to start the run.",
+    workflowTemplateInactive: "This workflow template is not active yet.",
+    invalidSoftwareRepo: "Software Delivery Team requires a valid GitHub repository slug.",
     unableToSaveSettings: "Unable to save settings.",
     unableToSaveGitHubSettings: "Unable to save GitHub settings.",
     approvalFailed: "Approval failed.",
@@ -252,8 +261,9 @@ type Messages = DeepStringify<typeof en>;
 
 const tr: Messages = {
   common: {
-    brand: "AI TeamS",
+    brand: "Workgate",
     language: "Dil",
+    workflow: "Workflow",
     branch: "Branch",
     managedBranch: "Yönetilen branch",
     none: "Yok",
@@ -281,16 +291,16 @@ const tr: Messages = {
     settings: "Ayarlar"
   },
   appShell: {
-    title: "Operatör konsolu",
-    description: "İşleri yönlendir, run kayıtlarını incele, onayları denetle ve incelenmiş değişiklikleri tek panelden GitHub'a gönder."
+    title: "Workflow kontrol düzlemi",
+    description: "Hazır AI ekiplerini çalıştır, her teslimi incele ve yüksek etkili çıktıları insan onay kapısının arkasında tut."
   },
   loginPage: {
-    eyebrow: "AI TeamS",
-    title: "AI yazılım ofisin için tek panel kontrol",
+    eyebrow: "Workgate",
+    title: "Hazır AI ekipleri, insan onayıyla",
     description:
-      "İşleri yönlendir, agent çıktılarını incele, onayları uygula ve dağınık script'ler yerine kontrollü bir operatör panelinden taslak pull request gönder.",
-    featureOne: "Routing, planlama, mühendislik, review ve docs için sabit pipeline.",
-    featureTwo: "Operatör açıkça onay vermeden GitHub yazma işlemleri engellenir."
+      "Yazılım teslimi, teklif operasyonları ve diğer onay ağırlıklı işler için workflow odaklı AI ekiplerini tek operatör yüzeyinden çalıştır.",
+    featureOne: "Yönlendirme, planlama, inceleme ve dokümantasyon içeren şablon ekipler hazır gelir.",
+    featureTwo: "Yüksek etkili çıktılar platform dışına çıkmadan önce insan onayında durur."
   },
   loginForm: {
     title: "Operatör girişi",
@@ -301,10 +311,10 @@ const tr: Messages = {
     pending: "Giriş yapılıyor..."
   },
   dashboard: {
-    eyebrow: "AI yazılım ofisi",
-    title: "Run'lar, onaylar ve repo çıktıları tek panelde",
+    eyebrow: "Workflow platformu",
+    title: "Şablon bazlı AI işleri tek kontrol yüzeyinde",
     description:
-      "Güvenilen repolara karşı iş başlat, her rolün çıktısını incele ve branch push işlemlerini açık operatör kapısının arkasında tut.",
+      "Hazır ekipleri başlat, her run'ı incele ve repo veya müşteri çıktısını açık onay kapılarının arkasında tut.",
     totalRuns: "Toplam run",
     pendingApprovals: "Bekleyen onay",
     failedRuns: "Başarısız run",
@@ -313,18 +323,23 @@ const tr: Messages = {
     noRuns: "Henüz run yok. İlk görevi yukarıdan başlat.",
     controlNotes: "Kontrol notları",
     operatorReminders: "Operatör hatırlatmaları",
-    noteOne: "Sen onaylamadan branch push ve taslak pull request oluşturulmaz.",
-    noteTwo: "GitHub çalışması yalnızca ayarlardaki açık allowlist içindeki repolarla sınırlıdır.",
-    noteThree: "Canlı PostgreSQL yoksa ürün yine de bellek içi depolama ve inline queue ile kullanılabilir.",
+    noteOne: "Her workflow, dış sistemlere çıkmadan veya GitHub'a yazmadan önce insan onayında durur.",
+    noteTwo: "GitHub çalıştırmaları yalnızca Yazılım Teslim Ekibi için ve allowlist'teki depolarla sınırlıdır.",
+    noteThree: "Canlı PostgreSQL olmadan platform, bellek içi depolama ve inline queue ile yine kullanılabilir kalır.",
     approvalQueue: "Onay kuyruğu",
     waitingOnYou: "Seni bekliyor",
     noApprovals: "Onay bekleyen run yok."
   },
   taskComposer: {
-    eyebrow: "Yeni görev",
-    title: "Yazılım ofisi run'ı başlat",
+    eyebrow: "Yeni run",
+    title: "Bir workflow ekibi başlat",
     description:
-      "Hedef repoyu, yapılacak işi ve kabul çıtasını gönder. Sabit pipeline, dış yazma aksiyonlarından önce route edecek, planlayacak, review edecek ve onayda bekleyecek.",
+      "Workflow şablonunu seç, hedefi ve başarı çıtasını tanımla. Takım işi yönlendirsin, planlasın, incelesin ve bir şey yayınlamadan önce onayda dursun.",
+    workflowEyebrow: "Workflow kütüphanesi",
+    workflowTitle: "Bu işi hangi ekip çalıştıracak?",
+    workflowDescription: "Aktif şablonlar şimdi çalışır. Sıradaki dikeyler de ürün yönünü görünür tutmak için burada durur.",
+    activeNow: "Şimdi aktif",
+    comingSoon: "Yakında",
     titleLabel: "Başlık",
     titlePlaceholder: "Kararsız CI bildirimlerini düzelt",
     taskTypeLabel: "Görev türü",
@@ -342,21 +357,21 @@ const tr: Messages = {
     attachmentNamePlaceholder: "brief.md",
     attachmentContentLabel: "Ek içeriği",
     attachmentContentPlaceholder: "İsteğe bağlı bağlam, log veya issue notları",
-    idleHint: "Herhangi bir push veya PR aksiyonundan önce run onayda duracaktır.",
+    idleHint: "Her dış aksiyondan önce run onay için duracak.",
     submit: "Run başlat",
     pending: "Başlatılıyor..."
   },
   approvalsPage: {
     eyebrow: "Onay kuyruğu",
     title: "İnsan incelemesinin arkasında bekleyen run'lar",
-    description: "Bu kuyruk, AI TeamS'in GitHub'a branch yazmadan veya taslak pull request açmadan önceki son güvenlik katmanıdır.",
+    description: "Bu kuyruk, Workgate'in müşteriye hazır çıktı yayınlamasından veya GitHub'a branch yazmasından önceki son kapıdır.",
     empty: "Şu anda bekleyen onay yok."
   },
   settingsPage: {
     eyebrow: "Ayarlar",
     title: "Çalışma zamanı ve entegrasyon kontrolleri",
     description:
-      "v1 içinde tek dış entegrasyon GitHub'dır. Sağlayıcılar politika gereği çok modelli kalır, ama branch push ve taslak PR oluşturma tek operatör hesabının arkasında tutulur.",
+      "Workgate workflow politika setlerini, model yönlendirmesini ve dış connector'ları tek operatör yüzeyinde tutar. v1'de GitHub yalnızca Yazılım Teslim Ekibi için kullanılır.",
     runtimeEyebrow: "Çalışma zamanı",
     runtimeTitle: "Yerel çalışma",
     storageMode: "Depolama modu",
@@ -369,7 +384,7 @@ const tr: Messages = {
     eyebrow: "GitHub",
     title: "Repo erişimi",
     description:
-      "Fine-grained PAT ve açık repo allowlist'ini sakla. AI TeamS, bu listenin dışındaki repolarda çalışmayı reddeder.",
+      "Fine-grained PAT ve açık repo allowlist'ini sakla. Workgate bu connector'ı yalnızca Yazılım Teslim Ekibi için kullanır.",
     currentToken: "Mevcut token",
     patLabel: "Fine-grained PAT",
     reposLabel: "Allowlist repolar",
@@ -401,6 +416,7 @@ const tr: Messages = {
     confirmDelete: "Bu run ve ilişkili tüm loglar silinsin mi? Bu işlem geri alınamaz."
   },
   runDetail: {
+    workflowLabel: "Workflow",
     branchLabel: "Branch",
     managedBranchLabel: "Yönetilen branch",
     executionTimeline: "Yürütme zaman çizelgesi",
@@ -459,6 +475,8 @@ const tr: Messages = {
   apiMessages: {
     invalidCredentials: "Geçersiz bilgiler.",
     unableToStartRun: "Run başlatılamadı.",
+    workflowTemplateInactive: "Bu workflow şablonu henüz aktif değil.",
+    invalidSoftwareRepo: "Yazılım Teslim Ekibi için geçerli bir GitHub repo adresi gerekir.",
     unableToSaveSettings: "Ayarlar kaydedilemedi.",
     unableToSaveGitHubSettings: "GitHub ayarları kaydedilemedi.",
     approvalFailed: "Onay işlemi başarısız oldu.",
@@ -504,6 +522,8 @@ const apiMessageMap: Record<string, keyof Messages["apiMessages"]> = {
   "Invalid credentials.": "invalidCredentials",
   "Unable to create task.": "unableToStartRun",
   "Unable to start the run.": "unableToStartRun",
+  "This workflow template is not active yet.": "workflowTemplateInactive",
+  "Software Delivery Team requires a valid GitHub repository slug.": "invalidSoftwareRepo",
   "Unable to save settings.": "unableToSaveSettings",
   "Unable to save GitHub settings.": "unableToSaveGitHubSettings",
   "Approval failed.": "approvalFailed",

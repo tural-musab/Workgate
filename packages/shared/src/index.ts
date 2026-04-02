@@ -41,6 +41,8 @@ export const approvalActions = ["approve", "reject"] as const;
 export const retryModes = ["full", "failed_only"] as const;
 
 export const taskTypes = ["bugfix", "feature", "research", "ops"] as const;
+export const workflowTemplates = ["software_delivery", "rfp_response", "social_media_ops", "security_questionnaire"] as const;
+export const activeWorkflowTemplates = ["software_delivery", "rfp_response"] as const;
 
 export const modelProviders = ["openai", "anthropic", "google", "mock"] as const;
 
@@ -52,6 +54,7 @@ export type ToolCategory = (typeof toolCategories)[number];
 export type ApprovalAction = (typeof approvalActions)[number];
 export type RetryMode = (typeof retryModes)[number];
 export type TaskType = (typeof taskTypes)[number];
+export type WorkflowTemplateId = (typeof workflowTemplates)[number];
 export type ModelProvider = (typeof modelProviders)[number];
 
 export const AttachmentSchema = z.object({
@@ -64,7 +67,8 @@ export const TaskRequestSchema = z.object({
   title: z.string().min(3).max(160),
   goal: z.string().min(10).max(8000),
   taskType: z.enum(taskTypes),
-  targetRepo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  workflowTemplate: z.enum(workflowTemplates).default("software_delivery"),
+  targetRepo: z.string().min(1).max(255),
   targetBranch: z.string().min(1).max(255),
   constraints: z.array(z.string().min(1)).default([]),
   acceptanceCriteria: z.array(z.string().min(1)).default([]),
@@ -138,6 +142,7 @@ export const RunRecordSchema = z.object({
   status: z.enum(runStatuses),
   title: z.string(),
   taskType: z.enum(taskTypes),
+  workflowTemplate: z.enum(workflowTemplates),
   targetRepo: z.string(),
   targetBranch: z.string(),
   branchName: z.string().nullable(),
@@ -248,6 +253,18 @@ export function canDeleteRun(status: RunStatus) {
 
 export function canRetryRun(status: RunStatus) {
   return isTerminalRunStatus(status);
+}
+
+export function isActiveWorkflowTemplate(template: WorkflowTemplateId) {
+  return (activeWorkflowTemplates as readonly string[]).includes(template);
+}
+
+export function isGitHubWorkflowTemplate(template: WorkflowTemplateId) {
+  return template === "software_delivery";
+}
+
+export function isValidGitHubRepoSlug(value: string) {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
 }
 
 const runTransitions: Record<RunStatus, RunStatus[]> = {

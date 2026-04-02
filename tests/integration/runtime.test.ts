@@ -30,7 +30,7 @@ function createMockGithub() {
       }
       return {
         workspacePath: `/tmp/${runId}`,
-        branchName: `aiteams/${runId}-${title.toLowerCase().replace(/\s+/g, "-")}`
+        branchName: `workgate/${runId}-${title.toLowerCase().replace(/\s+/g, "-")}`
       };
     },
     async writeRunArtifactsToWorkspace() {},
@@ -151,5 +151,32 @@ describe("run orchestration", () => {
     });
 
     await expect(approveRun(detail.run.id, "operator")).rejects.toThrow("not allowlisted");
+  });
+
+  it("approves an RFP workflow without requiring GitHub writes", async () => {
+    const detail = await createTask({
+      title: "Prepare renewal response",
+      goal: "Draft and review a response pack for a renewal RFP and stop at human approval before external delivery.",
+      taskType: "research",
+      workflowTemplate: "rfp_response",
+      targetRepo: "Acme Corp renewal",
+      targetBranch: "Security questionnaire and pricing notes",
+      constraints: ["Do not invent unsupported claims"],
+      acceptanceCriteria: ["Run reaches approval gate with proposal artefacts"],
+      attachments: []
+    });
+
+    await waitFor(
+      async () => getRunDetail(detail.run.id),
+      (run): run is NonNullable<typeof run> => Boolean(run && run.run.status === "pending_human")
+    );
+
+    const result = await approveRun(detail.run.id, "operator");
+    const approved = await getRunDetail(detail.run.id);
+
+    expect(result.pullRequest).toBeNull();
+    expect(approved?.run.status).toBe("completed");
+    expect(approved?.toolCalls.some((toolCall) => toolCall.toolName === "github.createDraftPullRequest")).toBe(false);
+    expect(approved?.toolCalls.some((toolCall) => toolCall.toolName === "workflow.releasePacket")).toBe(true);
   });
 });
