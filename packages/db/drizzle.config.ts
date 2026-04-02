@@ -1,15 +1,14 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 import { defineConfig } from "drizzle-kit";
 
-const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const rootEnvPath = path.resolve(currentDir, "../../.env");
+const ROOT_ENV_PATH = fileURLToPath(new URL("../../.env", import.meta.url));
 
-if (existsSync(rootEnvPath)) {
-  process.loadEnvFile(rootEnvPath);
+try {
+  process.loadEnvFile(ROOT_ENV_PATH);
+} catch {
+  // The repo root .env file is optional when DATABASE_URL comes from the shell.
 }
 
 export default defineConfig({
@@ -17,6 +16,6 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/aiteams"
+    url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/workgate"
   }
 });

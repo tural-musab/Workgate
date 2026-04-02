@@ -1,6 +1,6 @@
 import { formatDistanceToNowStrict } from "date-fns";
 
-import type { RunStatus } from "@aiteams/shared";
+import type { RunStatus } from "@workgate/shared";
 
 import { getDateFnsLocale, type Locale } from "./i18n";
 

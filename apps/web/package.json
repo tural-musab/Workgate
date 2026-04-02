@@ -1,5 +1,5 @@
 {
-  "name": "@aiteams/web",
+  "name": "@workgate/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,10 +9,10 @@
     "start": "next start"
   },
   "dependencies": {
-    "@aiteams/agents": "workspace:*",
-    "@aiteams/db": "workspace:*",
-    "@aiteams/github": "workspace:*",
-    "@aiteams/shared": "workspace:*",
+    "@workgate/agents": "workspace:*",
+    "@workgate/db": "workspace:*",
+    "@workgate/github": "workspace:*",
+    "@workgate/shared": "workspace:*",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "jose": "^6.1.0",

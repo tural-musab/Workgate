@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildManagedBranchName } from "@aiteams/github";
-import { TaskRequestSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus, isValidGitHubRepoSlug } from "@aiteams/shared";
+import { buildManagedBranchName } from "@workgate/github";
+import { TaskRequestSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus, isValidGitHubRepoSlug } from "@workgate/shared";
 
 describe("shared contracts", () => {
   it("validates task payloads", () => {

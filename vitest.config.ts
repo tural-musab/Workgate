@@ -7,10 +7,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "apps/web"),
-      "@aiteams/shared": path.resolve(__dirname, "packages/shared/src/index.ts"),
-      "@aiteams/db": path.resolve(__dirname, "packages/db/src/index.ts"),
-      "@aiteams/github": path.resolve(__dirname, "packages/github/src/index.ts"),
-      "@aiteams/agents": path.resolve(__dirname, "packages/agents/src/index.ts")
+      "@workgate/shared": path.resolve(__dirname, "packages/shared/src/index.ts"),
+      "@workgate/db": path.resolve(__dirname, "packages/db/src/index.ts"),
+      "@workgate/github": path.resolve(__dirname, "packages/github/src/index.ts"),
+      "@workgate/agents": path.resolve(__dirname, "packages/agents/src/index.ts")
     }
   },
   test: {

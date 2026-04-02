@@ -3,7 +3,7 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 
-import { TaskRouteSchema, type AgentDeliverable, type AgentRole, type ModelPolicy, type ModelProvider, type TaskRequest, type TaskRoute } from "@aiteams/shared";
+import { TaskRouteSchema, type AgentDeliverable, type AgentRole, type ModelPolicy, type ModelProvider, type TaskRequest, type TaskRoute } from "@workgate/shared";
 
 import { buildRoleSystemPrompt, buildRoleUserPrompt } from "./prompts";
 

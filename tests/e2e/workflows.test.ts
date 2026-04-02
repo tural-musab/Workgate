@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createQueueAdapter, createStorageAdapter, type StorageAdapter } from "@aiteams/db";
+import { createQueueAdapter, createStorageAdapter, type StorageAdapter } from "@workgate/db";
 
 import { createTask, installRuntimeForTests, rejectRun, resetRuntimeForTests } from "@/lib/app-service";
 
@@ -51,7 +51,7 @@ function installRuntime(storage: StorageAdapter) {
 }
 
 beforeEach(() => {
-  process.env.AI_TEAMS_MOCK_MODE = "true";
+  process.env.WORKGATE_MOCK_MODE = "true";
 });
 
 afterEach(() => {

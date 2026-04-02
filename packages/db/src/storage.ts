@@ -21,7 +21,7 @@ import {
   type TaskRequest,
   type ToolCallRecord,
   defaultModelPolicies
-} from "@aiteams/shared";
+} from "@workgate/shared";
 
 import { appSettings, approvals, artifacts, modelPolicies, repoConnections, runSteps, runs, taskRequests, toolCalls } from "./schema";
 

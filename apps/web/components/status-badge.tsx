@@ -1,6 +1,6 @@
 "use client";
 
-import type { RunStatus } from "@aiteams/shared";
+import type { RunStatus } from "@workgate/shared";
 
 import { cn } from "@/lib/cn";
 import { getStatusLabel } from "@/lib/i18n";

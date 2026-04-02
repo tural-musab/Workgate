@@ -7,7 +7,7 @@ import { Bot, BriefcaseBusiness, Code2, Lock } from "lucide-react";
 
 import { resolveApiMessage } from "@/lib/i18n";
 import { getWorkflowPresentation, listWorkflowPresentations } from "@/lib/workflows";
-import { type TaskType, type WorkflowTemplateId } from "@aiteams/shared";
+import { type TaskType, type WorkflowTemplateId } from "@workgate/shared";
 
 import { useLocale } from "./locale-provider";
 

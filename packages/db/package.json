@@ -1,5 +1,5 @@
 {
-  "name": "@aiteams/db",
+  "name": "@workgate/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@aiteams/shared": "workspace:*",
+    "@workgate/shared": "workspace:*",
     "drizzle-orm": "0.45.2",
     "pg-boss": "12.15.0",
     "postgres": "^3.4.7"

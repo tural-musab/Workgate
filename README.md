@@ -24,7 +24,7 @@ Workgate is a local-first, cloud-ready control plane for prebuilt AI teams. The 
 
 1. Copy `.env.example` to `.env`.
 2. Provide `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `AUTH_SECRET`.
-3. Start a local PostgreSQL instance and create the `aiteams` database if you want durable storage.
+3. Start a local PostgreSQL instance and create the `workgate` database if you want durable storage.
 4. Run `pnpm install`.
 5. Run `pnpm db:push` when `DATABASE_URL` points at PostgreSQL.
 6. Run `pnpm dev`.
@@ -37,7 +37,7 @@ Workgate is prepared for a remote Supabase PostgreSQL setup.
 
 1. Open `.env`.
 2. Replace `DATABASE_URL` with your real Supabase session-pooler or direct PostgreSQL connection string.
-3. After that connection works, change `AI_TEAMS_QUEUE_DRIVER=pgboss`.
+3. After that connection works, change `WORKGATE_QUEUE_DRIVER=pgboss`.
 4. Run `pnpm db:push`.
 5. Start the app with `pnpm dev`.
 

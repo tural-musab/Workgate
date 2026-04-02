@@ -1,19 +1,19 @@
 {
-  "name": "ai-teams",
+  "name": "workgate",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.17.1",
   "scripts": {
-    "dev": "pnpm --filter @aiteams/web dev",
-    "build": "pnpm --filter @aiteams/web build",
-    "start": "pnpm --filter @aiteams/web start",
+    "dev": "pnpm --filter @workgate/web dev",
+    "build": "pnpm --filter @workgate/web build",
+    "start": "pnpm --filter @workgate/web start",
     "lint": "pnpm exec eslint .",
     "test": "vitest run",
     "test:anthropic": "node ./scripts/test-anthropic-key.mjs",
     "test:watch": "vitest",
-    "db:generate": "pnpm --filter @aiteams/db exec drizzle-kit generate",
-    "db:push": "pnpm --filter @aiteams/db exec drizzle-kit push"
+    "db:generate": "pnpm --filter @workgate/db exec drizzle-kit generate",
+    "db:push": "pnpm --filter @workgate/db exec drizzle-kit push"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",

@@ -1,4 +1,4 @@
-import type { AgentRole, TaskRequest, WorkflowTemplateId } from "@aiteams/shared";
+import type { AgentRole, TaskRequest, WorkflowTemplateId } from "@workgate/shared";
 
 function workflowLabel(template: WorkflowTemplateId) {
   switch (template) {

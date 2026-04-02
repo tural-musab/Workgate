@@ -9,7 +9,6 @@ coverage
 .env.*.local
 drizzle
 tmp
-.aiteams
 .workgate
 playwright-report
 test-results

@@ -10,7 +10,7 @@ import { formatRelativeTime } from "@/lib/format";
 import { getArtifactTypeLabel, getMessages, getRoleLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
 import { getWorkflowPresentation } from "@/lib/workflows";
-import { canCancelRun, canDeleteRun, canRetryRun } from "@aiteams/shared";
+import { canCancelRun, canDeleteRun, canRetryRun } from "@workgate/shared";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

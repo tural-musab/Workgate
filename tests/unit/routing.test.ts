@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { routeTask, routeTaskDeterministic } from "@aiteams/agents";
+import { routeTask, routeTaskDeterministic } from "@workgate/agents";
 
 describe("routing policy", () => {
   it("routes high-risk work to human oversight in deterministic mode", () => {

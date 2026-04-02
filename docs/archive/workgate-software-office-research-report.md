@@ -1,7 +1,9 @@
-# AI TeamS - AI Software Office Research Report
+# Workgate Software Office Research Archive
 
 Date: 2026-04-02
-Prepared for: greenfield workspace at `/Users/turanmusabosman/Documents/projects/AI TeamS`
+Prepared for: the pre-build greenfield workspace that later became Workgate
+
+This document is retained as an archive of the original software-office research phase. It is historical context, not the current product positioning.
 
 ## 1. Executive Summary
 

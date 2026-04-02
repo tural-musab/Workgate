@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { getAppEnv } from "./env";
 
-const SESSION_COOKIE = "aiteams_session";
+const SESSION_COOKIE = "workgate_session";
 
 async function getJwtSecret() {
   return new TextEncoder().encode(getAppEnv().authSecret);

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import type { GitHubSettingsView } from "@aiteams/shared";
+import type { GitHubSettingsView } from "@workgate/shared";
 
 import { resolveApiMessage } from "@/lib/i18n";
 

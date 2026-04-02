@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { Octokit } from "octokit";
 import slugify from "slugify";
 
-import type { ArtifactRecord, GitHubRepoConnection } from "@aiteams/shared";
+import type { ArtifactRecord, GitHubRepoConnection } from "@workgate/shared";
 
 const execFileAsync = promisify(execFile);
 

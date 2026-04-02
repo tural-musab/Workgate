@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRepositoryContextMarkdown, selectRepositoryAuditFiles } from "@aiteams/github";
+import { buildRepositoryContextMarkdown, selectRepositoryAuditFiles } from "@workgate/github";
 
 describe("repository context helpers", () => {
   it("selects high-signal files for repository audits", () => {
@@ -21,7 +21,7 @@ describe("repository context helpers", () => {
 
   it("renders repository context into compact markdown", () => {
     const markdown = buildRepositoryContextMarkdown({
-      targetRepo: "tural-musab/AI-TeamS",
+      targetRepo: "tural-musab/Workgate",
       targetBranch: "main",
       resolvedBranch: "master",
       description: "AI office control plane",
@@ -38,7 +38,7 @@ describe("repository context helpers", () => {
       ]
     });
 
-    expect(markdown).toContain("Repository: tural-musab/AI-TeamS");
+    expect(markdown).toContain("Repository: tural-musab/Workgate");
     expect(markdown).toContain("Branch resolved: master");
     expect(markdown).toContain("TypeScript");
     expect(markdown).toContain("## Selected file excerpts");

@@ -1,17 +1,21 @@
-import { existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ROOT_ENV_PATH = path.resolve(CURRENT_DIR, "../../../.env");
+let envLoaded = false;
 
 function ensureRootEnvLoaded() {
-  const candidatePaths = [
-    path.resolve(process.cwd(), ".env"),
-    path.resolve(process.cwd(), "../../.env")
-  ];
+  if (envLoaded) {
+    return;
+  }
 
-  for (const candidate of candidatePaths) {
-    if (existsSync(candidate)) {
-      process.loadEnvFile(candidate);
-      break;
-    }
+  envLoaded = true;
+
+  try {
+    process.loadEnvFile(ROOT_ENV_PATH);
+  } catch {
+    // The root .env file is optional in CI and hosted environments.
   }
 }
 
@@ -22,7 +26,7 @@ export function getAppEnv() {
     adminPassword: process.env.ADMIN_PASSWORD ?? "change-me",
     authSecret: process.env.AUTH_SECRET ?? "replace-with-a-long-random-string",
     databaseUrl: process.env.DATABASE_URL,
-    queueDriver: process.env.AI_TEAMS_QUEUE_DRIVER ?? "inline",
-    mockMode: process.env.AI_TEAMS_MOCK_MODE !== "false"
+    queueDriver: process.env.WORKGATE_QUEUE_DRIVER ?? "inline",
+    mockMode: process.env.WORKGATE_MOCK_MODE !== "false"
   };
 }

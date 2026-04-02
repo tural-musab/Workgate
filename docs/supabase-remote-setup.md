@@ -16,7 +16,7 @@ Avoid the transaction pooler for long-lived worker behavior when you move the qu
 In `.env`:
 
 - replace `DATABASE_URL` with the real Supabase PostgreSQL connection string
-- change `AI_TEAMS_QUEUE_DRIVER=pgboss`
+- change `WORKGATE_QUEUE_DRIVER=pgboss`
 
 ## Bootstrap flow
 
@@ -31,6 +31,6 @@ In `.env`:
 The generated `.env` uses:
 
 - placeholder Supabase URL
-- `AI_TEAMS_QUEUE_DRIVER=inline`
+- `WORKGATE_QUEUE_DRIVER=inline`
 
 That keeps the app runnable before the real remote database is ready.

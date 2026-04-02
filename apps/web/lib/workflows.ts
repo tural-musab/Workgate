@@ -1,4 +1,4 @@
-import type { WorkflowTemplateId } from "@aiteams/shared";
+import type { WorkflowTemplateId } from "@workgate/shared";
 
 import type { Locale } from "./i18n";
 

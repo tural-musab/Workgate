@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createQueueAdapter, createStorageAdapter, type QueueAdapter, type StorageAdapter } from "@aiteams/db";
+import { createQueueAdapter, createStorageAdapter, type QueueAdapter, type StorageAdapter } from "@workgate/db";
 
 import { cancelRun, createTask, deleteRun, getRunDetail, installRuntimeForTests, resetRuntimeForTests, retryRun } from "@/lib/app-service";
 
@@ -79,7 +79,7 @@ function createManualQueue() {
 }
 
 beforeEach(() => {
-  process.env.AI_TEAMS_MOCK_MODE = "true";
+  process.env.WORKGATE_MOCK_MODE = "true";
 });
 
 afterEach(() => {

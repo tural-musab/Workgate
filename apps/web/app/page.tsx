@@ -12,7 +12,7 @@ import { formatRelativeTime } from "@/lib/format";
 import { getMessages, getTaskTypeLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
 import { getWorkflowPresentation } from "@/lib/workflows";
-import { canCancelRun, canDeleteRun, canRetryRun } from "@aiteams/shared";
+import { canCancelRun, canDeleteRun, canRetryRun } from "@workgate/shared";
 
 export default async function DashboardPage() {
   const [session, data, locale] = await Promise.all([requirePageSession(), getDashboardData(), getServerLocale()]);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createQueueAdapter, createStorageAdapter } from "@aiteams/db";
+import { createQueueAdapter, createStorageAdapter } from "@workgate/db";
 
 import { installRuntimeForTests, resetRuntimeForTests, createTask, getRunDetail, saveGitHubSettings, approveRun } from "@/lib/app-service";
 
@@ -66,7 +66,7 @@ function installMemoryRuntime() {
 }
 
 beforeEach(() => {
-  process.env.AI_TEAMS_MOCK_MODE = "true";
+  process.env.WORKGATE_MOCK_MODE = "true";
   installMemoryRuntime();
 });
 

@@ -1,6 +1,6 @@
-import { createQueueAdapter, createStorageAdapter, type QueueAdapter, type StorageAdapter } from "@aiteams/db";
-import { routeTaskDeterministic, streamWorkflow, type ArtifactDraft, type ResolvedTaskRoute, type WorkflowStartOptions } from "@aiteams/agents";
-import { GitHubExecutionService, buildManagedBranchName } from "@aiteams/github";
+import { createQueueAdapter, createStorageAdapter, type QueueAdapter, type StorageAdapter } from "@workgate/db";
+import { routeTaskDeterministic, streamWorkflow, type ArtifactDraft, type ResolvedTaskRoute, type WorkflowStartOptions } from "@workgate/agents";
+import { GitHubExecutionService, buildManagedBranchName } from "@workgate/github";
 import {
   agentRoles,
   canCancelRun,
@@ -23,7 +23,7 @@ import {
   RetryRunPayloadSchema,
   TaskRequestSchema,
   defaultModelPolicies
-} from "@aiteams/shared";
+} from "@workgate/shared";
 
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
 import { getAppEnv } from "./env";

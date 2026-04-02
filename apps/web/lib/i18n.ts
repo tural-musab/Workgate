@@ -1,11 +1,11 @@
 import { enUS, tr as trLocale } from "date-fns/locale";
 
-import type { AgentRole, ArtifactType, RunStatus, TaskType } from "@aiteams/shared";
+import type { AgentRole, ArtifactType, RunStatus, TaskType } from "@workgate/shared";
 
 export const locales = ["en", "tr"] as const;
 export type Locale = (typeof locales)[number];
 
-export const LOCALE_COOKIE = "aiteams_locale";
+export const LOCALE_COOKIE = "workgate_locale";
 
 function hasLocale(value: string): value is Locale {
   return locales.includes(value as Locale);

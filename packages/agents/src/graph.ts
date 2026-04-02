@@ -10,7 +10,7 @@ import {
   type TaskRequest,
   type WorkflowTemplateId,
   defaultModelPolicies
-} from "@aiteams/shared";
+} from "@workgate/shared";
 
 import { invokeRoleDeliverable, providerFamily, routeTask, routeTaskDeterministic, type ResolvedTaskRoute } from "./models";
 
@@ -76,7 +76,7 @@ async function runRole(role: AgentRole, state: WorkflowState, policies: ModelPol
       role,
       policy,
       context,
-      mockMode: process.env.AI_TEAMS_MOCK_MODE !== "false"
+      mockMode: process.env.WORKGATE_MOCK_MODE !== "false"
     });
 
     return {
@@ -144,7 +144,7 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
   return new StateGraph(WorkflowAnnotation)
     .addNode("routerNode", async (state) => {
       const route = await routeTask(state.task, policyForRole(policies, "router"), {
-        mockMode: process.env.AI_TEAMS_MOCK_MODE !== "false"
+        mockMode: process.env.WORKGATE_MOCK_MODE !== "false"
       });
       const routeLines = [
         `Route: ${route.route}`,

@@ -16,10 +16,10 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@aiteams/shared": ["packages/shared/src/index.ts"],
-      "@aiteams/db": ["packages/db/src/index.ts"],
-      "@aiteams/agents": ["packages/agents/src/index.ts"],
-      "@aiteams/github": ["packages/github/src/index.ts"]
+      "@workgate/shared": ["packages/shared/src/index.ts"],
+      "@workgate/db": ["packages/db/src/index.ts"],
+      "@workgate/agents": ["packages/agents/src/index.ts"],
+      "@workgate/github": ["packages/github/src/index.ts"]
     }
   }
 }

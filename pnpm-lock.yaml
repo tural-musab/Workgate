@@ -35,16 +35,16 @@ importers:
 
   apps/web:
     dependencies:
-      '@aiteams/agents':
+      '@workgate/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@aiteams/db':
+      '@workgate/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@aiteams/github':
+      '@workgate/github':
         specifier: workspace:*
         version: link:../../packages/github
-      '@aiteams/shared':
+      '@workgate/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       clsx:
@@ -93,10 +93,10 @@ importers:
 
   packages/agents:
     dependencies:
-      '@aiteams/github':
+      '@workgate/github':
         specifier: workspace:*
         version: link:../github
-      '@aiteams/shared':
+      '@workgate/shared':
         specifier: workspace:*
         version: link:../shared
       '@langchain/anthropic':
@@ -120,7 +120,7 @@ importers:
 
   packages/db:
     dependencies:
-      '@aiteams/shared':
+      '@workgate/shared':
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
@@ -139,7 +139,7 @@ importers:
 
   packages/github:
     dependencies:
-      '@aiteams/shared':
+      '@workgate/shared':
         specifier: workspace:*
         version: link:../shared
       octokit:
