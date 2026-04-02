@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
-import { getRunDetail } from "@/lib/app-service";
+import { deleteRun, getRunDetail } from "@/lib/app-service";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -18,3 +18,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   return NextResponse.json(detail);
 }
 
+export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  try {
+    await deleteRun(id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Action failed." }, { status: 400 });
+  }
+}

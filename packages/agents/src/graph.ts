@@ -5,14 +5,15 @@ import {
   type AgentRole,
   type ArtifactType,
   type ModelPolicy,
+  type TaskRoute,
   type RunStatus,
   type TaskRequest,
   defaultModelPolicies
 } from "@aiteams/shared";
 
-import { invokeRoleDeliverable, providerFamily, routeTask } from "./models";
+import { invokeRoleDeliverable, providerFamily, routeTask, routeTaskDeterministic, type ResolvedTaskRoute } from "./models";
 
-type ArtifactDraft = {
+export type ArtifactDraft = {
   artifactType: ArtifactType;
   title: string;
   content: string;
@@ -21,7 +22,8 @@ type ArtifactDraft = {
 type WorkflowState = {
   task: TaskRequest;
   status: RunStatus;
-  route: ReturnType<typeof routeTask> | undefined;
+  resumeFrom: AgentRole;
+  route: ResolvedTaskRoute | undefined;
   deliverables: Partial<Record<AgentRole, AgentDeliverable>>;
   artifacts: ArtifactDraft[];
   finalSummary: string | undefined;
@@ -33,6 +35,10 @@ const WorkflowAnnotation = Annotation.Root({
   status: Annotation<RunStatus>({
     reducer: (_, right) => right,
     default: () => "queued"
+  }),
+  resumeFrom: Annotation<AgentRole>({
+    reducer: (_, right) => right,
+    default: () => "router"
   }),
   route: Annotation<WorkflowState["route"]>({
     reducer: (_, right) => right,
@@ -61,18 +67,25 @@ function policyForRole(policies: ModelPolicy[], role: AgentRole) {
 }
 
 async function runRole(role: AgentRole, state: WorkflowState, policies: ModelPolicy[], context: string) {
-  const deliverable = await invokeRoleDeliverable({
-    task: state.task,
-    role,
-    policy: policyForRole(policies, role),
-    context,
-    mockMode: process.env.AI_TEAMS_MOCK_MODE !== "false"
-  });
+  const policy = policyForRole(policies, role);
 
-  return {
-    deliverables: { [role]: deliverable },
-    needsHuman: deliverable.needsHuman
-  };
+  try {
+    const deliverable = await invokeRoleDeliverable({
+      task: state.task,
+      role,
+      policy,
+      context,
+      mockMode: process.env.AI_TEAMS_MOCK_MODE !== "false"
+    });
+
+    return {
+      deliverables: { [role]: deliverable },
+      needsHuman: deliverable.needsHuman
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown model invocation failure.";
+    throw new Error(`${role} failed with ${policy.provider}/${policy.model}: ${message}`);
+  }
 }
 
 function makeArtifact(artifactType: ArtifactType, title: string, content: string): ArtifactDraft[] {
@@ -81,26 +94,51 @@ function makeArtifact(artifactType: ArtifactType, title: string, content: string
 
 export interface WorkflowResult {
   status: RunStatus;
-  route: ReturnType<typeof routeTask>;
+  route: TaskRoute;
   deliverables: Partial<Record<AgentRole, AgentDeliverable>>;
   artifacts: ArtifactDraft[];
   finalSummary: string;
   needsHuman: boolean;
 }
 
+export interface WorkflowStartOptions {
+  startAt?: AgentRole;
+  route?: ResolvedTaskRoute;
+  deliverables?: Partial<Record<AgentRole, AgentDeliverable>>;
+  artifacts?: ArtifactDraft[];
+  needsHuman?: boolean;
+}
+
+function nodeForRole(role: AgentRole) {
+  return role === "router" ? "routerNode" : role;
+}
+
 function buildWorkflowGraph(policies: ModelPolicy[]) {
   return new StateGraph(WorkflowAnnotation)
     .addNode("routerNode", async (state) => {
-      const route = routeTask(state.task);
+      const route = await routeTask(state.task, policyForRole(policies, "router"), {
+        mockMode: process.env.AI_TEAMS_MOCK_MODE !== "false"
+      });
+      const routeLines = [
+        `Route: ${route.route}`,
+        `Risk: ${route.risk}`,
+        `Needs human: ${route.needsHuman}`,
+        `Decision source: ${route.source}`,
+        route.provider && route.model ? `Model: ${route.provider}/${route.model}` : "Model: deterministic rules"
+      ];
+
       return {
         route,
         status: route.route === "research" ? "planning" : "routing",
         deliverables: {
           router: {
             summary: route.reason,
-            deliverable: `Route: ${route.route}\nRisk: ${route.risk}\nNeeds human: ${route.needsHuman}`,
+            deliverable: routeLines.join("\n"),
             risks: route.risk === "high" ? ["High-risk route detected."] : [],
-            needsHuman: route.needsHuman
+            needsHuman: route.needsHuman,
+            provider: route.provider ?? "mock",
+            model: route.model ?? "deterministic-router",
+            executionMode: route.source === "model" ? "live" : route.source === "fallback" ? "mock" : "rule"
           }
         },
         needsHuman: route.needsHuman
@@ -183,7 +221,16 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
         needsHuman: true
       };
     })
-    .addEdge(START, "routerNode")
+    .addConditionalEdges(START, (state) => nodeForRole(state.resumeFrom ?? "router"), {
+      routerNode: "routerNode",
+      coordinator: "coordinator",
+      research: "research",
+      pm: "pm",
+      architect: "architect",
+      engineer: "engineer",
+      reviewer: "reviewer",
+      docs: "docs"
+    })
     .addEdge("routerNode", "coordinator")
     .addEdge("coordinator", "research")
     .addEdge("research", "pm")
@@ -195,38 +242,32 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
     .compile();
 }
 
-export async function streamWorkflow(task: TaskRequest, policies: ModelPolicy[] = defaultModelPolicies) {
-  const compiled = buildWorkflowGraph(policies);
-  return compiled.stream(
-    {
-      task,
-      status: "queued",
-      route: undefined,
-      deliverables: {},
-      artifacts: [],
-      finalSummary: undefined,
-      needsHuman: false
-    },
-    { streamMode: "updates" }
-  );
-}
-
-export async function runWorkflow(task: TaskRequest, policies: ModelPolicy[] = defaultModelPolicies): Promise<WorkflowResult> {
-  const compiled = buildWorkflowGraph(policies);
-
-  const result = await compiled.invoke({
+function buildInitialState(task: TaskRequest, options?: WorkflowStartOptions): WorkflowState {
+  return {
     task,
     status: "queued",
-    route: undefined,
-    deliverables: {},
-    artifacts: [],
+    resumeFrom: options?.startAt ?? "router",
+    route: options?.route,
+    deliverables: options?.deliverables ?? {},
+    artifacts: options?.artifacts ?? [],
     finalSummary: undefined,
-    needsHuman: false
-  });
+    needsHuman: options?.needsHuman ?? false
+  };
+}
+
+export async function streamWorkflow(task: TaskRequest, policies: ModelPolicy[] = defaultModelPolicies, options?: WorkflowStartOptions) {
+  const compiled = buildWorkflowGraph(policies);
+  return compiled.stream(buildInitialState(task, options), { streamMode: "updates" });
+}
+
+export async function runWorkflow(task: TaskRequest, policies: ModelPolicy[] = defaultModelPolicies, options?: WorkflowStartOptions): Promise<WorkflowResult> {
+  const compiled = buildWorkflowGraph(policies);
+
+  const result = await compiled.invoke(buildInitialState(task, options));
 
   return {
     status: result.status,
-    route: result.route ?? routeTask(task),
+    route: result.route ?? routeTaskDeterministic(task),
     deliverables: result.deliverables,
     artifacts: result.artifacts,
     finalSummary: result.finalSummary ?? "Run completed.",

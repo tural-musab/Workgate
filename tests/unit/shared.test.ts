@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildManagedBranchName } from "@aiteams/github";
-import { TaskRequestSchema, canTransitionRunStatus } from "@aiteams/shared";
+import { TaskRequestSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus } from "@aiteams/shared";
 
 describe("shared contracts", () => {
   it("validates task payloads", () => {
@@ -42,5 +42,14 @@ describe("shared contracts", () => {
 
   it("creates the managed branch naming pattern", () => {
     expect(buildManagedBranchName("run-123", "Fix build cache mismatch")).toContain("aiteams/run-123-fix-build-cache-mismatch");
+  });
+
+  it("exposes run action guards for the operator UI", () => {
+    expect(canCancelRun("queued")).toBe(true);
+    expect(canCancelRun("pending_human")).toBe(true);
+    expect(canDeleteRun("failed")).toBe(true);
+    expect(canDeleteRun("executing")).toBe(false);
+    expect(canRetryRun("completed")).toBe(true);
+    expect(canRetryRun("planning")).toBe(false);
   });
 });

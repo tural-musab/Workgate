@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Activity, ArrowRight, GitBranchPlus, ShieldCheck } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
+import { RunActions } from "@/components/run-actions";
 import { StatusBadge } from "@/components/status-badge";
 import { TaskComposer } from "@/components/task-composer";
 import { requirePageSession } from "@/lib/auth";
@@ -10,6 +11,7 @@ import { getDashboardData } from "@/lib/app-service";
 import { formatRelativeTime } from "@/lib/format";
 import { getMessages, getTaskTypeLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
+import { canCancelRun, canDeleteRun, canRetryRun } from "@aiteams/shared";
 
 export default async function DashboardPage() {
   const [session, data, locale] = await Promise.all([requirePageSession(), getDashboardData(), getServerLocale()]);
@@ -63,26 +65,34 @@ export default async function DashboardPage() {
                   <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-8 text-sm text-slate-400">{messages.dashboard.noRuns}</div>
                 ) : (
                   data.runs.map((run) => (
-                    <Link
-                      key={run.id}
-                      href={`/runs/${run.id}`}
-                      className="flex flex-col gap-4 rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035] lg:flex-row lg:items-center lg:justify-between"
-                    >
-                      <div className="min-w-0 space-y-2">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <StatusBadge status={run.status} />
-                          <span className="font-[var(--font-mono)] text-xs text-slate-400">{run.id}</span>
+                    <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035]">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0 space-y-2">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <StatusBadge status={run.status} />
+                            <span className="font-[var(--font-mono)] text-xs text-slate-400">{run.id}</span>
+                          </div>
+                          <Link href={`/runs/${run.id}`} className="block text-lg font-medium text-white transition hover:text-cyan-100">
+                            {run.title}
+                          </Link>
+                          <div className="text-sm leading-6 text-slate-400">
+                            {run.targetRepo} · {messages.common.branch}: {run.targetBranch}
+                          </div>
                         </div>
-                        <div className="text-lg font-medium text-white">{run.title}</div>
-                        <div className="text-sm leading-6 text-slate-400">
-                          {run.targetRepo} · {messages.common.branch}: {run.targetBranch}
+                        <div className="flex flex-col items-start gap-3 lg:items-end">
+                          <div className="flex items-center gap-8 text-sm text-slate-300">
+                            <span>{formatRelativeTime(run.updatedAt, locale)}</span>
+                            <span className="font-[var(--font-mono)] text-xs uppercase tracking-[0.18em] text-slate-500">{getTaskTypeLabel(run.taskType, messages)}</span>
+                          </div>
+                          <RunActions
+                            runId={run.id}
+                            allowCancel={canCancelRun(run.status)}
+                            allowDelete={canDeleteRun(run.status)}
+                            allowRetry={canRetryRun(run.status)}
+                          />
                         </div>
                       </div>
-                      <div className="flex items-center gap-8 text-sm text-slate-300">
-                        <span>{formatRelativeTime(run.updatedAt, locale)}</span>
-                        <span className="font-[var(--font-mono)] text-xs uppercase tracking-[0.18em] text-slate-500">{getTaskTypeLabel(run.taskType, messages)}</span>
-                      </div>
-                    </Link>
+                    </div>
                   ))
                 )}
               </div>
@@ -122,15 +132,20 @@ export default async function DashboardPage() {
                   <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-7 text-sm text-slate-400">{messages.dashboard.noApprovals}</div>
                 ) : (
                   data.approvals.map((run) => (
-                    <Link key={run.id} href={`/runs/${run.id}`} className="block rounded-[1.5rem] border border-white/10 px-5 py-4 transition hover:bg-white/[0.035]">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium text-white">{run.title}</div>
-                          <div className="text-xs text-slate-400">{run.targetRepo}</div>
+                    <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-4 transition hover:bg-white/[0.035]">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="space-y-1">
+                            <Link href={`/runs/${run.id}`} className="text-sm font-medium text-white transition hover:text-cyan-100">
+                              {run.title}
+                            </Link>
+                            <div className="text-xs text-slate-400">{run.targetRepo}</div>
+                          </div>
+                          <StatusBadge status={run.status} />
                         </div>
-                        <StatusBadge status={run.status} />
+                        <RunActions runId={run.id} allowCancel={canCancelRun(run.status)} />
                       </div>
-                    </Link>
+                    </div>
                   ))
                 )}
               </div>

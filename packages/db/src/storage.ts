@@ -34,6 +34,7 @@ export interface StorageAdapter {
   listRuns(): Promise<RunRecord[]>;
   listPendingApprovalRuns(): Promise<RunRecord[]>;
   getRunDetail(runId: string): Promise<RunDetail | null>;
+  deleteRun(runId: string): Promise<boolean>;
   updateRun(runId: string, patch: Partial<Pick<RunRecord, "status" | "branchName" | "failureReason" | "finalSummary">>): Promise<void>;
   createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null }): Promise<StepRecord>;
   updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt">>): Promise<void>;
@@ -208,6 +209,28 @@ class MemoryStorage implements StorageAdapter {
       approvals: [...this.approvals.values()].filter((approval) => approval.runId === runId),
       toolCalls: [...this.toolCalls.values()].filter((toolCall) => toolCall.runId === runId)
     };
+  }
+
+  async deleteRun(runId: string) {
+    const run = this.runs.get(runId);
+    if (!run) return false;
+
+    for (const [id, step] of this.steps.entries()) {
+      if (step.runId === runId) this.steps.delete(id);
+    }
+    for (const [id, artifact] of this.artifacts.entries()) {
+      if (artifact.runId === runId) this.artifacts.delete(id);
+    }
+    for (const [id, approval] of this.approvals.entries()) {
+      if (approval.runId === runId) this.approvals.delete(id);
+    }
+    for (const [id, toolCall] of this.toolCalls.entries()) {
+      if (toolCall.runId === runId) this.toolCalls.delete(id);
+    }
+
+    this.runs.delete(runId);
+    this.tasks.delete(run.taskRequestId);
+    return true;
   }
 
   async updateRun(runId: string, patch: Partial<Pick<RunRecord, "status" | "branchName" | "failureReason" | "finalSummary">>) {
@@ -414,6 +437,22 @@ class PostgresStorage implements StorageAdapter {
       approvals: approvalRows.map(hydrateApproval),
       toolCalls: toolRows.map(hydrateToolCall)
     };
+  }
+
+  async deleteRun(runId: string) {
+    const runRow = await this.database.query.runs.findFirst({ where: eq(runs.id, runId) });
+    if (!runRow) return false;
+
+    await this.database.transaction(async (tx) => {
+      await tx.delete(toolCalls).where(eq(toolCalls.runId, runId));
+      await tx.delete(approvals).where(eq(approvals.runId, runId));
+      await tx.delete(artifacts).where(eq(artifacts.runId, runId));
+      await tx.delete(runSteps).where(eq(runSteps.runId, runId));
+      await tx.delete(runs).where(eq(runs.id, runId));
+      await tx.delete(taskRequests).where(eq(taskRequests.id, runRow.taskRequestId));
+    });
+
+    return true;
   }
 
   async updateRun(runId: string, patch: Partial<Pick<RunRecord, "status" | "branchName" | "failureReason" | "finalSummary">>) {
@@ -655,7 +694,7 @@ class PostgresStorage implements StorageAdapter {
   }
 
   async getModelPolicies() {
-    const rows = await this.database.select().from(modelPolicies);
+    let rows = await this.database.select().from(modelPolicies);
     if (rows.length === 0) {
       await this.database.insert(modelPolicies).values(
         defaultModelPolicies.map((policy) => ({
@@ -668,13 +707,54 @@ class PostgresStorage implements StorageAdapter {
       );
       return defaultModelPolicies;
     }
-    return rows.map((row) => ({
-      role: row.role as AgentRole,
-      provider: row.provider as ModelPolicy["provider"],
-      model: row.model,
-      reviewerProvider: (row.reviewerProvider as ModelPolicy["reviewerProvider"]) ?? undefined,
-      reviewerModel: row.reviewerModel ?? undefined
-    }));
+
+    const routerDefault = defaultModelPolicies.find((policy) => policy.role === "router");
+    const legacyRouter = routerDefault
+      ? rows.find((row) => row.role === "router" && row.provider === "google" && row.model === "gemini-3.1-flash-lite-preview")
+      : undefined;
+
+    if (legacyRouter && routerDefault) {
+      await this.database
+        .update(modelPolicies)
+        .set({
+          provider: routerDefault.provider,
+          model: routerDefault.model,
+          reviewerProvider: routerDefault.reviewerProvider ?? null,
+          reviewerModel: routerDefault.reviewerModel ?? null
+        })
+        .where(eq(modelPolicies.role, "router"));
+      rows = await this.database.select().from(modelPolicies);
+    }
+
+    const existingRoles = new Set(rows.map((row) => row.role));
+    const missingPolicies = defaultModelPolicies.filter((policy) => !existingRoles.has(policy.role));
+    if (missingPolicies.length > 0) {
+      await this.database.insert(modelPolicies).values(
+        missingPolicies.map((policy) => ({
+          role: policy.role,
+          provider: policy.provider,
+          model: policy.model,
+          reviewerProvider: policy.reviewerProvider ?? null,
+          reviewerModel: policy.reviewerModel ?? null
+        }))
+      );
+      rows = await this.database.select().from(modelPolicies);
+    }
+
+    const normalized = new Map(
+      rows.map((row) => [
+        row.role,
+        {
+          role: row.role as AgentRole,
+          provider: row.provider as ModelPolicy["provider"],
+          model: row.model,
+          reviewerProvider: (row.reviewerProvider as ModelPolicy["reviewerProvider"]) ?? undefined,
+          reviewerModel: row.reviewerModel ?? undefined
+        }
+      ])
+    );
+
+    return defaultModelPolicies.map((policy) => normalized.get(policy.role) ?? policy);
   }
 }
 

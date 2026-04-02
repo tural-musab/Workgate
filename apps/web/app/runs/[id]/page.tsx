@@ -2,18 +2,21 @@ import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { ApprovalActions } from "@/components/approval-actions";
+import { RunActions } from "@/components/run-actions";
 import { StatusBadge } from "@/components/status-badge";
 import { requirePageSession } from "@/lib/auth";
-import { getRunDetail, getRuntimeInfo } from "@/lib/app-service";
+import { canRetryFailedOnly, getRunDetail, getRuntimeInfo } from "@/lib/app-service";
 import { formatRelativeTime } from "@/lib/format";
 import { getArtifactTypeLabel, getMessages, getRoleLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
+import { canCancelRun, canDeleteRun, canRetryRun } from "@aiteams/shared";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [session, detail, runtime, locale] = await Promise.all([requirePageSession(), getRunDetail(id), getRuntimeInfo(), getServerLocale()]);
   if (!detail) notFound();
   const messages = getMessages(locale);
+  const allowFailedOnlyRetry = canRetryFailedOnly(detail);
 
   return (
     <AppShell username={session.username} runtime={runtime}>
@@ -86,6 +89,16 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           </div>
 
           <div className="space-y-6">
+            <RunActions
+              runId={detail.run.id}
+              allowCancel={canCancelRun(detail.run.status)}
+              allowDelete={canDeleteRun(detail.run.status)}
+              allowRetry={canRetryRun(detail.run.status)}
+              allowRetryFailedOnly={allowFailedOnlyRetry}
+              redirectOnDeleteTo="/"
+              variant="detail"
+            />
+
             {detail.run.status === "pending_human" ? <ApprovalActions runId={detail.run.id} /> : null}
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">

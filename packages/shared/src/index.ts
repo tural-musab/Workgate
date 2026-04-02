@@ -38,6 +38,7 @@ export const artifactTypes = [
 export const toolCategories = ["read", "write", "high-risk"] as const;
 
 export const approvalActions = ["approve", "reject"] as const;
+export const retryModes = ["full", "failed_only"] as const;
 
 export const taskTypes = ["bugfix", "feature", "research", "ops"] as const;
 
@@ -49,6 +50,7 @@ export type StepStatus = (typeof stepStatuses)[number];
 export type ArtifactType = (typeof artifactTypes)[number];
 export type ToolCategory = (typeof toolCategories)[number];
 export type ApprovalAction = (typeof approvalActions)[number];
+export type RetryMode = (typeof retryModes)[number];
 export type TaskType = (typeof taskTypes)[number];
 export type ModelProvider = (typeof modelProviders)[number];
 
@@ -80,7 +82,10 @@ export const AgentDeliverableSchema = z.object({
   summary: z.string().min(1),
   deliverable: z.string().min(1),
   risks: z.array(z.string()).default([]),
-  needsHuman: z.boolean().default(false)
+  needsHuman: z.boolean().default(false),
+  provider: z.enum(modelProviders).optional(),
+  model: z.string().optional(),
+  executionMode: z.enum(["live", "mock", "rule"]).optional()
 });
 
 export const ArtifactRecordSchema = z.object({
@@ -174,6 +179,10 @@ export const GitHubSettingsViewSchema = z.object({
   allowedRepos: z.array(GitHubRepoConnectionSchema)
 });
 
+export const RetryRunPayloadSchema = z.object({
+  mode: z.enum(retryModes)
+});
+
 export const ModelPolicySchema = z.object({
   role: z.enum(agentRoles),
   provider: z.enum(modelProviders),
@@ -202,11 +211,12 @@ export type RunDetail = z.infer<typeof RunDetailSchema>;
 export type GitHubRepoConnection = z.infer<typeof GitHubRepoConnectionSchema>;
 export type GitHubSettings = z.infer<typeof GitHubSettingsSchema>;
 export type GitHubSettingsView = z.infer<typeof GitHubSettingsViewSchema>;
+export type RetryRunPayload = z.infer<typeof RetryRunPayloadSchema>;
 export type ModelPolicy = z.infer<typeof ModelPolicySchema>;
 export type DashboardSummary = z.infer<typeof DashboardSummarySchema>;
 
 export const defaultModelPolicies: ModelPolicy[] = [
-  { role: "router", provider: "google", model: "gemini-3.1-flash-lite-preview" },
+  { role: "router", provider: "google", model: "gemini-3.1-pro-preview" },
   { role: "coordinator", provider: "openai", model: "gpt-5.4" },
   { role: "research", provider: "google", model: "gemini-3.1-pro-preview" },
   { role: "pm", provider: "google", model: "gemini-3.1-pro-preview" },
@@ -218,6 +228,26 @@ export const defaultModelPolicies: ModelPolicy[] = [
 
 export function isPlanningStatus(status: RunStatus) {
   return ["routing", "planning", "executing", "reviewing"].includes(status);
+}
+
+export function isActiveRunStatus(status: RunStatus) {
+  return ["queued", "routing", "planning", "executing", "reviewing", "pending_human"].includes(status);
+}
+
+export function isTerminalRunStatus(status: RunStatus) {
+  return ["completed", "failed", "cancelled"].includes(status);
+}
+
+export function canCancelRun(status: RunStatus) {
+  return isActiveRunStatus(status);
+}
+
+export function canDeleteRun(status: RunStatus) {
+  return isTerminalRunStatus(status);
+}
+
+export function canRetryRun(status: RunStatus) {
+  return isTerminalRunStatus(status);
 }
 
 const runTransitions: Record<RunStatus, RunStatus[]> = {

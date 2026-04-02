@@ -10,6 +10,7 @@
     "start": "pnpm --filter @aiteams/web start",
     "lint": "pnpm exec eslint .",
     "test": "vitest run",
+    "test:anthropic": "node ./scripts/test-anthropic-key.mjs",
     "test:watch": "vitest",
     "db:generate": "pnpm --filter @aiteams/db exec drizzle-kit generate",
     "db:push": "pnpm --filter @aiteams/db exec drizzle-kit push"
@@ -25,4 +26,3 @@
     "vitest": "^3.2.4"
   }
 }
-

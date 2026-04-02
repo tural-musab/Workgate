@@ -1,13 +1,18 @@
 import { AppShell } from "@/components/app-shell";
 import { GitHubSettingsForm } from "@/components/github-settings-form";
 import { requirePageSession } from "@/lib/auth";
-import { getGitHubSettingsView, getRuntimeInfo } from "@/lib/app-service";
+import { getGitHubSettingsView, getModelPoliciesView, getRuntimeInfo } from "@/lib/app-service";
 import { getMessages, getRoleLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
-import { defaultModelPolicies } from "@aiteams/shared";
 
 export default async function SettingsPage() {
-  const [session, settings, runtime, locale] = await Promise.all([requirePageSession(), getGitHubSettingsView(), getRuntimeInfo(), getServerLocale()]);
+  const [session, settings, runtime, policies, locale] = await Promise.all([
+    requirePageSession(),
+    getGitHubSettingsView(),
+    getRuntimeInfo(),
+    getModelPoliciesView(),
+    getServerLocale()
+  ]);
   const messages = getMessages(locale);
 
   return (
@@ -43,7 +48,7 @@ export default async function SettingsPage() {
                 <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.settingsPage.modelPolicyTitle}</h2>
               </div>
               <div className="mt-5 space-y-3">
-                {defaultModelPolicies.map((policy) => (
+                {policies.map((policy) => (
                   <div key={policy.role} className="rounded-[1.5rem] border border-white/10 px-4 py-4">
                     <div className="text-sm font-medium text-white">{getRoleLabel(policy.role, messages)}</div>
                     <div className="mt-2 text-sm text-slate-400">
