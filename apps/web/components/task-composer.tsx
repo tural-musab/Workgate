@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { resolveApiMessage } from "@/lib/i18n";
+
+import { useLocale } from "./locale-provider";
+
 const initialState = {
   title: "",
   goal: "",
@@ -17,6 +21,7 @@ const initialState = {
 
 export function TaskComposer() {
   const router = useRouter();
+  const { messages } = useLocale();
   const [form, setForm] = useState(initialState);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -65,7 +70,7 @@ export function TaskComposer() {
 
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(body?.error ?? "Unable to start the run.");
+        setError(resolveApiMessage(body?.error, messages, "unableToStartRun"));
         return;
       }
 
@@ -78,126 +83,123 @@ export function TaskComposer() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6 rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
       <div className="space-y-2">
-        <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">New task</div>
-        <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">Launch a software-office run</h2>
-        <p className="max-w-2xl text-sm leading-6 text-slate-300">
-          Submit a repository target, the job to be done, and the acceptance bar. The fixed pipeline will route, plan, review, and hold for approval before any external write action.
-        </p>
+        <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.taskComposer.eyebrow}</div>
+        <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.taskComposer.title}</h2>
+        <p className="max-w-2xl text-sm leading-6 text-slate-300">{messages.taskComposer.description}</p>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1.3fr_0.8fr]">
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Title</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.titleLabel}</span>
           <input
             required
             value={form.title}
             onChange={(event) => updateField("title", event.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="Fix flaky CI notifications"
+            placeholder={messages.taskComposer.titlePlaceholder}
           />
         </label>
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Task type</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.taskTypeLabel}</span>
           <select
             value={form.taskType}
             onChange={(event) => updateField("taskType", event.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
           >
-            <option value="bugfix">Bugfix</option>
-            <option value="feature">Feature</option>
-            <option value="research">Research</option>
-            <option value="ops">Ops</option>
+            <option value="bugfix">{messages.taskTypes.bugfix}</option>
+            <option value="feature">{messages.taskTypes.feature}</option>
+            <option value="research">{messages.taskTypes.research}</option>
+            <option value="ops">{messages.taskTypes.ops}</option>
           </select>
         </label>
       </div>
 
       <label className="space-y-2">
-        <span className="text-sm text-slate-300">Goal</span>
+        <span className="text-sm text-slate-300">{messages.taskComposer.goalLabel}</span>
         <textarea
           required
           value={form.goal}
           onChange={(event) => updateField("goal", event.target.value)}
           className="min-h-36 w-full rounded-[1.5rem] border border-white/10 bg-slate-950/50 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-          placeholder="Describe the desired outcome, context, and why the work matters."
+          placeholder={messages.taskComposer.goalPlaceholder}
         />
       </label>
 
       <div className="grid gap-5 lg:grid-cols-2">
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Target repo</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.targetRepoLabel}</span>
           <input
             required
             value={form.targetRepo}
             onChange={(event) => updateField("targetRepo", event.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="owner/repo"
+            placeholder={messages.taskComposer.targetRepoPlaceholder}
           />
         </label>
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Target branch</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.targetBranchLabel}</span>
           <input
             required
             value={form.targetBranch}
             onChange={(event) => updateField("targetBranch", event.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="main"
+            placeholder={messages.taskComposer.targetBranchPlaceholder}
           />
         </label>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Constraints</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.constraintsLabel}</span>
           <textarea
             value={form.constraints}
             onChange={(event) => updateField("constraints", event.target.value)}
             className="min-h-32 w-full rounded-[1.5rem] border border-white/10 bg-slate-950/50 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="One constraint per line"
+            placeholder={messages.taskComposer.constraintsPlaceholder}
           />
         </label>
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Acceptance criteria</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.acceptanceCriteriaLabel}</span>
           <textarea
             value={form.acceptanceCriteria}
             onChange={(event) => updateField("acceptanceCriteria", event.target.value)}
             className="min-h-32 w-full rounded-[1.5rem] border border-white/10 bg-slate-950/50 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="One acceptance criterion per line"
+            placeholder={messages.taskComposer.acceptanceCriteriaPlaceholder}
           />
         </label>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Attachment name</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.attachmentNameLabel}</span>
           <input
             value={form.attachmentName}
             onChange={(event) => updateField("attachmentName", event.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="brief.md"
+            placeholder={messages.taskComposer.attachmentNamePlaceholder}
           />
         </label>
         <label className="space-y-2">
-          <span className="text-sm text-slate-300">Attachment content</span>
+          <span className="text-sm text-slate-300">{messages.taskComposer.attachmentContentLabel}</span>
           <textarea
             value={form.attachmentContent}
             onChange={(event) => updateField("attachmentContent", event.target.value)}
             className="min-h-28 w-full rounded-[1.5rem] border border-white/10 bg-slate-950/50 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
-            placeholder="Optional supporting context, logs, or issue notes"
+            placeholder={messages.taskComposer.attachmentContentPlaceholder}
           />
         </label>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="text-sm text-slate-400">{error ? <span className="text-rose-300">{error}</span> : "The run will stop for approval before any push or PR action."}</div>
+        <div className="text-sm text-slate-400">{error ? <span className="text-rose-300">{error}</span> : messages.taskComposer.idleHint}</div>
         <button
           type="submit"
           disabled={isPending}
           className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isPending ? "Starting..." : "Start run"}
+          {isPending ? messages.taskComposer.pending : messages.taskComposer.submit}
         </button>
       </div>
     </form>
   );
 }
-

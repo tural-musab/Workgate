@@ -3,8 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { resolveApiMessage } from "@/lib/i18n";
+
+import { useLocale } from "./locale-provider";
+
 export function LoginForm() {
   const router = useRouter();
+  const { messages } = useLocale();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -25,7 +30,8 @@ export function LoginForm() {
       });
 
       if (!response.ok) {
-        setError("Invalid credentials.");
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(resolveApiMessage(body?.error, messages, "invalidCredentials"));
         return;
       }
 
@@ -37,15 +43,15 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-[2rem] border border-white/10 bg-white/[0.05] px-6 py-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white">Operator sign-in</h1>
-        <p className="text-sm leading-6 text-slate-300">Use the seeded admin credentials from your environment file.</p>
+        <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white">{messages.loginForm.title}</h1>
+        <p className="text-sm leading-6 text-slate-300">{messages.loginForm.description}</p>
       </div>
       <label className="space-y-2">
-        <span className="text-sm text-slate-300">Username</span>
+        <span className="text-sm text-slate-300">{messages.loginForm.username}</span>
         <input name="username" required className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40" />
       </label>
       <label className="space-y-2">
-        <span className="text-sm text-slate-300">Password</span>
+        <span className="text-sm text-slate-300">{messages.loginForm.password}</span>
         <input
           name="password"
           type="password"
@@ -56,10 +62,9 @@ export function LoginForm() {
       <div className="flex items-center justify-between gap-4">
         <span className="text-sm text-rose-300">{error}</span>
         <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60">
-          {isPending ? "Signing in..." : "Sign in"}
+          {isPending ? messages.loginForm.pending : messages.loginForm.submit}
         </button>
       </div>
     </form>
   );
 }
-

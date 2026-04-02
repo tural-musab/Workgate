@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Public_Sans } from "next/font/google";
 
+import { LocaleProvider } from "@/components/locale-provider";
+import { getMessages } from "@/lib/i18n";
+import { getServerLocale } from "@/lib/i18n-server";
+
 import "./globals.css";
 
 const publicSans = Public_Sans({
@@ -19,11 +23,17 @@ export const metadata: Metadata = {
   description: "Operator dashboard for an AI software office."
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const locale = await getServerLocale();
+  const messages = getMessages(locale);
+
   return (
-    <html lang="en" className={`${publicSans.variable} ${plexMono.variable}`}>
-      <body className="font-[var(--font-sans)]">{children}</body>
+    <html lang={locale} className={`${publicSans.variable} ${plexMono.variable}`} suppressHydrationWarning>
+      <body className="font-[var(--font-sans)]" suppressHydrationWarning>
+        <LocaleProvider locale={locale} messages={messages}>
+          {children}
+        </LocaleProvider>
+      </body>
     </html>
   );
 }
-

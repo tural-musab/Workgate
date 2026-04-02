@@ -6,12 +6,14 @@ import { StatusBadge } from "@/components/status-badge";
 import { requirePageSession } from "@/lib/auth";
 import { getRunDetail, getRuntimeInfo } from "@/lib/app-service";
 import { formatRelativeTime } from "@/lib/format";
+import { getArtifactTypeLabel, getMessages, getRoleLabel } from "@/lib/i18n";
+import { getServerLocale } from "@/lib/i18n-server";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await requirePageSession();
-  const [detail, runtime] = await Promise.all([getRunDetail(id), getRuntimeInfo()]);
+  const [session, detail, runtime, locale] = await Promise.all([requirePageSession(), getRunDetail(id), getRuntimeInfo(), getServerLocale()]);
   if (!detail) notFound();
+  const messages = getMessages(locale);
 
   return (
     <AppShell username={session.username} runtime={runtime}>
@@ -20,7 +22,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           <div className="flex flex-wrap items-center gap-3">
             <StatusBadge status={detail.run.status} />
             <span className="font-[var(--font-mono)] text-xs text-slate-400">{detail.run.id}</span>
-            <span className="text-sm text-slate-500">{formatRelativeTime(detail.run.updatedAt)}</span>
+            <span className="text-sm text-slate-500">{formatRelativeTime(detail.run.updatedAt, locale)}</span>
           </div>
           <div className="space-y-2">
             <h1 className="text-4xl font-semibold tracking-[-0.05em] text-white">{detail.run.title}</h1>
@@ -28,8 +30,8 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           </div>
           <div className="flex flex-wrap gap-3 text-sm text-slate-400">
             <span>{detail.run.targetRepo}</span>
-            <span>Branch: {detail.run.targetBranch}</span>
-            {detail.run.branchName ? <span>Managed branch: {detail.run.branchName}</span> : null}
+            <span>{messages.runDetail.branchLabel}: {detail.run.targetBranch}</span>
+            {detail.run.branchName ? <span>{messages.runDetail.managedBranchLabel}: {detail.run.branchName}</span> : null}
           </div>
         </header>
 
@@ -37,21 +39,21 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           <div className="space-y-6">
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="space-y-1">
-                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">Execution timeline</div>
-                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">Completed steps</h2>
+                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.runDetail.executionTimeline}</div>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.completedSteps}</h2>
               </div>
               <div className="mt-6 space-y-4">
                 {detail.steps.length === 0 ? (
-                  <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-6 text-sm text-slate-400">The run has not emitted completed steps yet.</div>
+                  <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-6 text-sm text-slate-400">{messages.runDetail.noCompletedSteps}</div>
                 ) : (
                   detail.steps.map((step) => (
                     <div key={step.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="space-y-1">
-                          <div className="text-[0.72rem] uppercase tracking-[0.2em] text-slate-400">{step.role}</div>
-                          <div className="text-sm text-white">{step.summary ?? "Completed"}</div>
+                          <div className="text-[0.72rem] uppercase tracking-[0.2em] text-slate-400">{getRoleLabel(step.role, messages)}</div>
+                          <div className="text-sm text-white">{step.summary ?? messages.runDetail.completed}</div>
                         </div>
-                        <div className="text-xs text-slate-500">{step.endedAt ? formatRelativeTime(step.endedAt) : "In progress"}</div>
+                        <div className="text-xs text-slate-500">{step.endedAt ? formatRelativeTime(step.endedAt, locale) : messages.runDetail.inProgress}</div>
                       </div>
                       {step.output ? <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-[1.25rem] bg-slate-950/50 px-4 py-4 font-[var(--font-mono)] text-xs leading-6 text-slate-300">{step.output}</pre> : null}
                     </div>
@@ -62,19 +64,23 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="space-y-1">
-                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">Artefacts</div>
-                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">Generated outputs</h2>
+                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.runDetail.artefacts}</div>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.generatedOutputs}</h2>
               </div>
               <div className="mt-6 space-y-4">
-                {detail.artifacts.map((artifact) => (
-                  <article key={artifact.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5">
-                    <div className="space-y-1">
-                      <div className="text-[0.72rem] uppercase tracking-[0.2em] text-slate-400">{artifact.artifactType}</div>
-                      <h3 className="text-lg font-medium text-white">{artifact.title}</h3>
-                    </div>
-                    <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-[1.25rem] bg-slate-950/50 px-4 py-4 font-[var(--font-mono)] text-xs leading-6 text-slate-300">{artifact.content}</pre>
-                  </article>
-                ))}
+                {detail.artifacts.length === 0 ? (
+                  <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-6 text-sm text-slate-400">{messages.runDetail.noArtifacts}</div>
+                ) : (
+                  detail.artifacts.map((artifact) => (
+                    <article key={artifact.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5">
+                      <div className="space-y-1">
+                        <div className="text-[0.72rem] uppercase tracking-[0.2em] text-slate-400">{getArtifactTypeLabel(artifact.artifactType, messages)}</div>
+                        <h3 className="text-lg font-medium text-white">{artifact.title}</h3>
+                      </div>
+                      <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-[1.25rem] bg-slate-950/50 px-4 py-4 font-[var(--font-mono)] text-xs leading-6 text-slate-300">{artifact.content}</pre>
+                    </article>
+                  ))
+                )}
               </div>
             </section>
           </div>
@@ -84,18 +90,18 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="space-y-1">
-                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">Approvals</div>
-                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">Decision log</h2>
+                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.runDetail.approvals}</div>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.decisionLog}</h2>
               </div>
               <div className="mt-6 space-y-3">
                 {detail.approvals.length === 0 ? (
-                  <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-6 text-sm text-slate-400">No approval records yet.</div>
+                  <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-6 text-sm text-slate-400">{messages.runDetail.noApprovals}</div>
                 ) : (
                   detail.approvals.map((approval) => (
                     <div key={approval.id} className="rounded-[1.5rem] border border-white/10 px-5 py-4">
                       <div className="flex items-center justify-between gap-4">
-                        <span className="text-sm text-white">{approval.action ?? "pending"}</span>
-                        <span className="text-xs text-slate-500">{formatRelativeTime(approval.updatedAt)}</span>
+                        <span className="text-sm text-white">{approval.action ?? messages.runDetail.pending}</span>
+                        <span className="text-xs text-slate-500">{formatRelativeTime(approval.updatedAt, locale)}</span>
                       </div>
                       {approval.notes ? <p className="mt-3 text-sm leading-6 text-slate-300">{approval.notes}</p> : null}
                     </div>
@@ -106,21 +112,21 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="space-y-1">
-                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">Task source</div>
-                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">Inputs</h2>
+                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.runDetail.taskSource}</div>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.inputs}</h2>
               </div>
               <div className="mt-5 space-y-4 text-sm leading-6 text-slate-300">
                 <div>
-                  <div className="text-slate-500">Constraints</div>
+                  <div className="text-slate-500">{messages.runDetail.constraints}</div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
-                    {detail.task.constraints.length === 0 ? <li>None</li> : detail.task.constraints.map((item) => <li key={item}>{item}</li>)}
+                    {detail.task.constraints.length === 0 ? <li>{messages.common.none}</li> : detail.task.constraints.map((item) => <li key={item}>{item}</li>)}
                   </ul>
                 </div>
                 <div>
-                  <div className="text-slate-500">Acceptance criteria</div>
+                  <div className="text-slate-500">{messages.runDetail.acceptanceCriteria}</div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {detail.task.acceptanceCriteria.length === 0 ? (
-                      <li>None</li>
+                      <li>{messages.common.none}</li>
                     ) : (
                       detail.task.acceptanceCriteria.map((item) => <li key={item}>{item}</li>)
                     )}
@@ -134,4 +140,3 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
     </AppShell>
   );
 }
-

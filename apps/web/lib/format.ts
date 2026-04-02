@@ -2,8 +2,10 @@ import { formatDistanceToNowStrict } from "date-fns";
 
 import type { RunStatus } from "@aiteams/shared";
 
-export function formatRelativeTime(value: string) {
-  return formatDistanceToNowStrict(new Date(value), { addSuffix: true });
+import { getDateFnsLocale, type Locale } from "./i18n";
+
+export function formatRelativeTime(value: string, locale: Locale = "en") {
+  return formatDistanceToNowStrict(new Date(value), { addSuffix: true, locale: getDateFnsLocale(locale) });
 }
 
 export function statusTone(status: RunStatus) {
@@ -20,4 +22,3 @@ export function statusTone(status: RunStatus) {
       return "bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-400/20";
   }
 }
-
