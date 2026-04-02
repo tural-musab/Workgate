@@ -153,10 +153,13 @@ export default async function DashboardPage() {
                                 <span className={`rounded-full border px-2 py-1 uppercase tracking-[0.14em] ${workflow.accentBorder} ${workflow.accentText}`}>
                                   {workflow.name}
                                 </span>
+                                {run.lastCompletedRole ? <span>{messages.runDetail.lastCompleted}: {run.lastCompletedRole}</span> : null}
                               </div>
                             </div>
                             <StatusBadge status={run.status} />
                           </div>
+                          <p className="text-sm leading-6 text-slate-300">{run.approvalReadyReason}</p>
+                          <p className="text-xs leading-5 text-slate-500">{run.quickRiskSummary}</p>
                           <RunActions runId={run.id} allowCancel={canCancelRun(run.status)} />
                         </div>
                       </div>

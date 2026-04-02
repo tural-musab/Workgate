@@ -7,7 +7,7 @@ import { resolveApiMessage } from "@/lib/i18n";
 
 import { useLocale } from "./locale-provider";
 
-export function ApprovalActions({ runId }: { runId: string }) {
+export function ApprovalActions({ runId, approveLabel }: { runId: string; approveLabel?: string }) {
   const router = useRouter();
   const { messages } = useLocale();
   const [notes, setNotes] = useState("");
@@ -54,7 +54,7 @@ export function ApprovalActions({ runId }: { runId: string }) {
           onClick={() => submit("approve")}
           className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60"
         >
-          {messages.approvalActions.approve}
+          {approveLabel ?? messages.approvalActions.approve}
         </button>
         <button
           disabled={isPending}

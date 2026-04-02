@@ -33,6 +33,13 @@ function createMockGithub() {
         branchName: `workgate/${runId}-${title.toLowerCase().replace(/\s+/g, "-")}`
       };
     },
+    async applyFileOperations() {},
+    async readWorkspaceDiff() {
+      return {
+        diff: "diff --git a/docs/workgate-managed-change.md b/docs/workgate-managed-change.md",
+        changedFiles: ["docs/workgate-managed-change.md"]
+      };
+    },
     async writeRunArtifactsToWorkspace() {},
     async commitAndPushWorkspace() {},
     async createDraftPullRequest({ branchName }: { branchName: string }) {
@@ -61,7 +68,7 @@ function installMemoryRuntime() {
     storage: createStorageAdapter(undefined),
     queue: createQueueAdapter({ databaseUrl: undefined, driver: "inline" }),
     github: createMockGithub(),
-    started: false
+    started: true
   });
 }
 
@@ -70,8 +77,8 @@ beforeEach(() => {
   installMemoryRuntime();
 });
 
-afterEach(() => {
-  resetRuntimeForTests();
+afterEach(async () => {
+  await resetRuntimeForTests();
 });
 
 describe("run orchestration", () => {
@@ -80,8 +87,11 @@ describe("run orchestration", () => {
       title: "Fix build cache mismatch",
       goal: "Repair the build cache metadata path and produce the documentation needed for approval.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: ["Keep the change set minimal"],
       acceptanceCriteria: ["Run reaches approval gate"],
       attachments: []
@@ -103,8 +113,11 @@ describe("run orchestration", () => {
       title: "Fix notification drift",
       goal: "Adjust notification output and prepare a draft pull request after approval.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["Draft PR is created after approval"],
       attachments: []
@@ -133,8 +146,11 @@ describe("run orchestration", () => {
       title: "Attempt disallowed repo write",
       goal: "Verify that an unallowlisted repository cannot be pushed during approval.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["Approval should fail without matching allowlist entry"],
       attachments: []
@@ -159,8 +175,10 @@ describe("run orchestration", () => {
       goal: "Draft and review a response pack for a renewal RFP and stop at human approval before external delivery.",
       taskType: "research",
       workflowTemplate: "rfp_response",
-      targetRepo: "Acme Corp renewal",
-      targetBranch: "Security questionnaire and pricing notes",
+      workflowInput: {
+        accountName: "Acme Corp renewal",
+        knowledgeSource: "Security questionnaire and pricing notes"
+      },
       constraints: ["Do not invent unsupported claims"],
       acceptanceCriteria: ["Run reaches approval gate with proposal artefacts"],
       attachments: []

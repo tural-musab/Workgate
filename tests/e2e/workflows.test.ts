@@ -20,6 +20,13 @@ function createMockGithub() {
         branchName: `workgate/${runId}-workflow`
       };
     },
+    async applyFileOperations() {},
+    async readWorkspaceDiff() {
+      return {
+        diff: "diff --git a/docs/workgate-managed-change.md b/docs/workgate-managed-change.md",
+        changedFiles: ["docs/workgate-managed-change.md"]
+      };
+    },
     async writeRunArtifactsToWorkspace() {},
     async commitAndPushWorkspace() {},
     async createDraftPullRequest() {
@@ -46,7 +53,7 @@ function installRuntime(storage: StorageAdapter) {
     storage,
     queue: createQueueAdapter({ databaseUrl: undefined, driver: "inline" }),
     github: createMockGithub(),
-    started: false
+    started: true
   });
 }
 
@@ -54,8 +61,8 @@ beforeEach(() => {
   process.env.WORKGATE_MOCK_MODE = "true";
 });
 
-afterEach(() => {
-  resetRuntimeForTests();
+afterEach(async () => {
+  await resetRuntimeForTests();
 });
 
 describe("workflow scenarios", () => {
@@ -67,8 +74,11 @@ describe("workflow scenarios", () => {
       title: "Add approval queue filters",
       goal: "Plan and prepare the work needed to filter the operator approval queue by repository and status.",
       taskType: "feature",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: ["Do not expand scope beyond queue filtering"],
       acceptanceCriteria: ["Research, PRD, and architecture artefacts are generated"],
       attachments: []
@@ -102,8 +112,11 @@ describe("workflow scenarios", () => {
       title: "Break reviewer isolation",
       goal: "Trigger the failure path when reviewer and engineer share the same provider family.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["Run fails with a reviewer provider error"],
       attachments: []
@@ -121,8 +134,11 @@ describe("workflow scenarios", () => {
       title: "Reject this run",
       goal: "Exercise the operator rejection path after the workflow reaches approval.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["Run can be rejected cleanly"],
       attachments: []

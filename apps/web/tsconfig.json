@@ -3,7 +3,12 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@workgate/shared": ["../../packages/shared/src/index.ts"],
+      "@workgate/db": ["../../packages/db/src/index.ts"],
+      "@workgate/github": ["../../packages/github/src/index.ts"],
+      "@workgate/agents": ["../../packages/agents/src/index.ts"],
+      "@workgate/runtime": ["../../packages/runtime/src/index.ts"]
     },
     "plugins": [
       {
@@ -18,4 +23,3 @@
   ],
   "exclude": ["node_modules"]
 }
-

@@ -20,6 +20,13 @@ function createMockGithub() {
         branchName: `workgate/${runId}-workflow`
       };
     },
+    async applyFileOperations() {},
+    async readWorkspaceDiff() {
+      return {
+        diff: "diff --git a/docs/workgate-managed-change.md b/docs/workgate-managed-change.md",
+        changedFiles: ["docs/workgate-managed-change.md"]
+      };
+    },
     async writeRunArtifactsToWorkspace() {},
     async commitAndPushWorkspace() {},
     async createDraftPullRequest() {
@@ -48,7 +55,7 @@ function installRuntime(storage: StorageAdapter, queue?: QueueAdapter) {
     storage,
     queue: queue ?? createQueueAdapter({ databaseUrl: undefined, driver: "inline" }),
     github: createMockGithub(),
-    started: false
+    started: true
   });
 }
 
@@ -82,8 +89,8 @@ beforeEach(() => {
   process.env.WORKGATE_MOCK_MODE = "true";
 });
 
-afterEach(() => {
-  resetRuntimeForTests();
+afterEach(async () => {
+  await resetRuntimeForTests();
 });
 
 describe("run actions", () => {
@@ -96,8 +103,11 @@ describe("run actions", () => {
       title: "Cancel me before execution",
       goal: "Queue a run and cancel it before the worker starts processing any node.",
       taskType: "ops",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["The run never starts any workflow step"],
       attachments: []
@@ -119,8 +129,11 @@ describe("run actions", () => {
       title: "Delete after cancel",
       goal: "Reach approval, cancel the run, and then remove it from the run ledger.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["The run can be deleted once terminal"],
       attachments: []
@@ -145,8 +158,11 @@ describe("run actions", () => {
       title: "Retry full pipeline",
       goal: "Finish one run, then create a brand-new run that restarts the whole pipeline.",
       taskType: "feature",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["A new run restarts from the beginning"],
       attachments: []
@@ -191,8 +207,11 @@ describe("run actions", () => {
       title: "Retry failed reviewer stage",
       goal: "Fail during reviewer execution, then resume only the missing stages in a new run.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: [],
       acceptanceCriteria: ["The new run reuses completed work from the failed run"],
       attachments: []

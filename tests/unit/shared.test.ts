@@ -1,23 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 import { buildManagedBranchName } from "@workgate/github";
-import { TaskRequestSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus, isValidGitHubRepoSlug } from "@workgate/shared";
+import { CreateTaskPayloadSchema, canCancelRun, canDeleteRun, canRetryRun, canTransitionRunStatus, isValidGitHubRepoSlug, normalizeCreateTaskPayload } from "@workgate/shared";
 
 describe("shared contracts", () => {
   it("validates task payloads", () => {
-    const parsed = TaskRequestSchema.parse({
+    const parsed = CreateTaskPayloadSchema.parse({
       title: "Fix CI drift",
       goal: "Align CI workflow output with the expected notification schema.",
       taskType: "bugfix",
-      targetRepo: "owner/repo",
-      targetBranch: "main",
+      workflowTemplate: "software_delivery",
+      workflowInput: {
+        repository: "owner/repo",
+        branch: "main"
+      },
       constraints: ["Do not change runtime dependencies"],
       acceptanceCriteria: ["Notifications still send", "Tests stay green"],
       attachments: []
     });
 
-    expect(parsed.targetRepo).toBe("owner/repo");
-    expect(parsed.workflowTemplate).toBe("software_delivery");
+    const normalized = normalizeCreateTaskPayload(parsed);
+    expect(normalized.targetRepo).toBe("owner/repo");
+    expect(normalized.workflowTemplate).toBe("software_delivery");
   });
 
   it("exposes GitHub slug validation for software workflows", () => {

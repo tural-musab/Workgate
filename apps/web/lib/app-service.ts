@@ -1,633 +1,54 @@
-import { createQueueAdapter, createStorageAdapter, type QueueAdapter, type StorageAdapter } from "@workgate/db";
-import { routeTaskDeterministic, streamWorkflow, type ArtifactDraft, type ResolvedTaskRoute, type WorkflowStartOptions } from "@workgate/agents";
+import {
+  createQueueConsumer,
+  createQueueProducer,
+  createStorageAdapter,
+  type QueueAdapter,
+  type QueueConsumer,
+  type QueueProducer,
+  type StorageAdapter
+} from "@workgate/db";
 import { GitHubExecutionService, buildManagedBranchName } from "@workgate/github";
 import {
-  agentRoles,
+  buildApprovalQueueItem,
+  buildRetrySeed,
+  buildRetryTask,
+  canRetryFailedOnly as runtimeCanRetryFailedOnly,
+  extractEngineerPlan,
+  normalizeAllowedRepos,
+  seedRetryHistory,
+  startWorker,
+  stopWorker,
+  type GitHubExecutor,
+  type RuntimeServices
+} from "@workgate/runtime";
+import {
+  CreateTaskPayloadSchema,
+  GitHubSettingsViewSchema,
+  RetryRunPayloadSchema,
   canCancelRun,
   canDeleteRun,
   canRetryRun,
-  type AgentDeliverable,
-  type AgentRole,
+  defaultModelPolicies,
   type ApprovalAction,
-  type ArtifactType,
-  type GitHubRepoConnection,
   type GitHubSettingsView,
-  type RetryMode,
   type RunDetail,
-  type RunRecord,
-  type TaskRequest,
   isActiveWorkflowTemplate,
   isGitHubWorkflowTemplate,
   isValidGitHubRepoSlug,
-  GitHubSettingsViewSchema,
-  RetryRunPayloadSchema,
-  TaskRequestSchema,
-  defaultModelPolicies
+  normalizeCreateTaskPayload
 } from "@workgate/shared";
 
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
 import { getAppEnv } from "./env";
 
-type GitHubExecutor = Pick<
-  GitHubExecutionService,
-  "fetchRepositoryContext" | "createManagedWorkspace" | "writeRunArtifactsToWorkspace" | "commitAndPushWorkspace" | "createDraftPullRequest"
->;
-
-const RETRY_ATTACHMENT_NAME = ".workgate-retry.json";
-
-const artifactRoleMap: Record<ArtifactType, AgentRole> = {
-  research_note: "research",
-  prd: "pm",
-  architecture_memo: "architect",
-  patch_summary: "engineer",
-  test_report: "docs",
-  review_report: "reviewer",
-  changelog: "docs"
-};
-
-type RetrySeed = {
-  sourceRunId: string;
-  mode: RetryMode;
-  startAt: AgentRole;
-  route?: ResolvedTaskRoute;
-  deliverables: Partial<Record<AgentRole, AgentDeliverable>>;
-  artifacts: ArtifactDraft[];
-};
-
-export type AppRuntime = {
-  storage: StorageAdapter;
-  queue: QueueAdapter;
-  github: GitHubExecutor;
-  started: boolean;
-};
+export type AppRuntime = RuntimeServices;
 
 declare global {
-  var __AITEAMS_RUNTIME__: AppRuntime | undefined;
-}
-
-function roleFromNode(node: string): AgentRole {
-  if (node === "routerNode") return "router";
-  return node as AgentRole;
-}
-
-function toTaskRequest(task: RunDetail["task"]): TaskRequest {
-  return {
-    title: task.title,
-    goal: task.goal,
-    taskType: task.taskType,
-    workflowTemplate: task.workflowTemplate,
-    targetRepo: task.targetRepo,
-    targetBranch: task.targetBranch,
-    constraints: task.constraints,
-    acceptanceCriteria: task.acceptanceCriteria,
-    attachments: task.attachments
-  };
-}
-
-function isRetryAttachment(attachment: TaskRequest["attachments"][number]) {
-  return attachment.name === RETRY_ATTACHMENT_NAME;
-}
-
-function buildRetryAttachment(seed: RetrySeed) {
-  return {
-    name: RETRY_ATTACHMENT_NAME,
-    type: "json" as const,
-    content: JSON.stringify(seed)
-  };
-}
-
-function buildWorkflowContextAttachment(task: TaskRequest) {
-  if (task.workflowTemplate === "rfp_response") {
-    return {
-      name: "workflow-context.md",
-      type: "markdown" as const,
-      content: [
-        "# Workflow context",
-        "",
-        "- Workflow: RFP Response Team",
-        `- Account / opportunity: ${task.targetRepo}`,
-        `- Knowledge source: ${task.targetBranch}`,
-        "",
-        "## Operating model",
-        "- Produce capture-oriented, reviewable proposal work.",
-        "- Optimize for clarity, bid compliance, and approval readiness.",
-        "- Do not imply GitHub execution or source-code changes."
-      ].join("\n")
-    };
-  }
-
-  return {
-    name: "workflow-context.md",
-    type: "markdown" as const,
-    content: [
-      "# Workflow context",
-      "",
-      "- Workflow: Software Delivery Team",
-      `- Target repository: ${task.targetRepo}`,
-      `- Target branch: ${task.targetBranch}`,
-      "",
-      "## Operating model",
-      "- Produce engineering-focused outputs and route them through human review.",
-      "- GitHub write operations remain blocked until approval."
-    ].join("\n")
-  };
-}
-
-function extractRetrySeed(task: TaskRequest): { task: TaskRequest; retrySeed?: RetrySeed } {
-  const retryAttachment = task.attachments.find(isRetryAttachment);
-  const filteredAttachments = task.attachments.filter((attachment) => !isRetryAttachment(attachment));
-
-  if (!retryAttachment) {
-    return {
-      task: {
-        ...task,
-        attachments: filteredAttachments
-      }
-    };
-  }
-
-  try {
-    return {
-      task: {
-        ...task,
-        attachments: filteredAttachments
-      },
-      retrySeed: JSON.parse(retryAttachment.content) as RetrySeed
-    };
-  } catch {
-    return {
-      task: {
-        ...task,
-        attachments: filteredAttachments
-      }
-    };
-  }
-}
-
-function roleIndex(role: AgentRole) {
-  return agentRoles.indexOf(role);
-}
-
-function initialStatusForRole(role: AgentRole): RunRecord["status"] {
-  if (role === "router") return "routing";
-  if (role === "coordinator" || role === "research" || role === "pm") return "planning";
-  if (role === "architect" || role === "engineer") return "executing";
-  return "reviewing";
-}
-
-function parseRouterStepOutput(output?: string | null): ResolvedTaskRoute | undefined {
-  if (!output) return undefined;
-
-  const route = output.match(/^Route:\s*(.+)$/im)?.[1]?.trim();
-  const risk = output.match(/^Risk:\s*(.+)$/im)?.[1]?.trim();
-  const needsHumanRaw = output.match(/^Needs human:\s*(.+)$/im)?.[1]?.trim();
-  const source = output.match(/^Decision source:\s*(.+)$/im)?.[1]?.trim();
-  const modelLine = output.match(/^Model:\s*(.+)$/im)?.[1]?.trim();
-
-  if (
-    (route !== "research" && route !== "pm" && route !== "architect" && route !== "engineer" && route !== "docs" && route !== "human") ||
-    (risk !== "low" && risk !== "medium" && risk !== "high")
-  ) {
-    return undefined;
-  }
-
-  const [provider, model] = modelLine && modelLine !== "deterministic rules" ? modelLine.split("/") : [];
-  return {
-    route,
-    risk,
-    reason: "Recovered from previous router output.",
-    needsHuman: needsHumanRaw === "true",
-    source: source === "model" || source === "fallback" ? source : "rule",
-    ...((provider ? { provider: provider as ResolvedTaskRoute["provider"] } : {}) as Partial<ResolvedTaskRoute>),
-    ...(model ? { model } : {})
-  };
-}
-
-function toDeliverable(step: RunDetail["steps"][number]): AgentDeliverable | null {
-  if (!step.output) return null;
-  return {
-    summary: step.summary ?? `${step.role} reused from a previous run.`,
-    deliverable: step.output,
-    risks: [],
-    needsHuman: step.role === "reviewer" || step.role === "docs"
-  };
-}
-
-function getRetryResumeRole(detail: RunDetail): AgentRole | null {
-  const failedRole = agentRoles.find((role) => detail.run.failureReason?.toLowerCase().startsWith(`${role} failed`));
-  if (failedRole) return failedRole;
-
-  const completedRoles = detail.steps
-    .filter((step) => step.status === "completed" && step.output)
-    .map((step) => step.role)
-    .sort((left, right) => roleIndex(left) - roleIndex(right));
-
-  if (completedRoles.length === 0) return detail.run.status === "failed" ? "router" : null;
-
-  const lastCompletedRole = completedRoles[completedRoles.length - 1]!;
-  const nextRole = agentRoles[roleIndex(lastCompletedRole) + 1];
-  return nextRole ?? null;
-}
-
-function buildRetrySeed(detail: RunDetail, mode: RetryMode): RetrySeed | null {
-  if (mode === "full") return null;
-
-  const startAt = getRetryResumeRole(detail);
-  if (!startAt) return null;
-
-  const startIndex = roleIndex(startAt);
-  const deliverables = Object.fromEntries(
-    detail.steps
-      .filter((step) => step.status === "completed" && roleIndex(step.role) < startIndex)
-      .map((step) => [step.role, toDeliverable(step)])
-      .filter((entry): entry is [AgentRole, AgentDeliverable] => Boolean(entry[1]))
-  ) as Partial<Record<AgentRole, AgentDeliverable>>;
-
-  const artifacts = detail.artifacts
-    .filter((artifact) => roleIndex(artifactRoleMap[artifact.artifactType]) < startIndex)
-    .map((artifact) => ({
-      artifactType: artifact.artifactType,
-      title: artifact.title,
-      content: artifact.content
-    }));
-
-  const route = detail.steps.find((step) => step.role === "router")?.output
-    ? parseRouterStepOutput(detail.steps.find((step) => step.role === "router")?.output)
-    : undefined;
-
-  return {
-    sourceRunId: detail.run.id,
-    mode,
-    startAt,
-    deliverables,
-    artifacts,
-    ...((route ?? (startIndex > 1 ? routeTaskDeterministic(toTaskRequest(detail.task)) : undefined))
-      ? { route: route ?? routeTaskDeterministic(toTaskRequest(detail.task)) }
-      : {})
-  };
-}
-
-export function canRetryFailedOnly(detail: RunDetail) {
-  if (!canRetryRun(detail.run.status)) {
-    return false;
-  }
-
-  const seed = buildRetrySeed(detail, "failed_only");
-  if (!seed) return false;
-  return seed.startAt !== "router" || Object.keys(seed.deliverables).length > 0 || seed.artifacts.length > 0;
-}
-
-async function seedRetryHistory(runtime: AppRuntime, runId: string, seed: RetrySeed) {
-  for (const role of agentRoles) {
-    const deliverable = seed.deliverables[role];
-    if (!deliverable) continue;
-    const step = await runtime.storage.createRunStep({
-      runId,
-      role,
-      status: "running",
-      input: `Reused from run ${seed.sourceRunId} during failed-only retry.`
-    });
-    await runtime.storage.updateRunStep(step.id, {
-      status: "completed",
-      summary: deliverable.summary,
-      output: deliverable.deliverable,
-      endedAt: new Date().toISOString()
-    });
-  }
-
-  for (const artifact of seed.artifacts) {
-    await runtime.storage.addArtifact({
-      runId,
-      artifactType: artifact.artifactType,
-      title: artifact.title,
-      content: artifact.content
-    });
-  }
-}
-
-function createRuntime(): AppRuntime {
-  const env = getAppEnv();
-  return {
-    storage: createStorageAdapter(env.databaseUrl),
-    queue: createQueueAdapter({ databaseUrl: env.databaseUrl, driver: env.queueDriver }),
-    github: new GitHubExecutionService(),
-    started: false
-  };
-}
-
-function getRuntime() {
-  if (!globalThis.__AITEAMS_RUNTIME__) {
-    globalThis.__AITEAMS_RUNTIME__ = createRuntime();
-  }
-  return globalThis.__AITEAMS_RUNTIME__;
-}
-
-async function buildWorkflowTask(detail: RunDetail, runtime: AppRuntime): Promise<{ task: TaskRequest; startOptions?: WorkflowStartOptions }> {
-  const githubSettings = await runtime.storage.getGitHubSettings();
-  const { task: sanitizedTask, retrySeed } = extractRetrySeed(toTaskRequest(detail.task));
-  const baseTask: TaskRequest = {
-    ...sanitizedTask,
-    attachments: [...sanitizedTask.attachments, buildWorkflowContextAttachment(sanitizedTask)]
-  };
-  const startOptions = retrySeed
-    ? ({
-        startAt: retrySeed.startAt,
-        deliverables: retrySeed.deliverables,
-        artifacts: retrySeed.artifacts,
-        ...(retrySeed.route ? { route: retrySeed.route } : {})
-      } satisfies WorkflowStartOptions)
-    : undefined;
-
-  if (!isGitHubWorkflowTemplate(detail.task.workflowTemplate)) {
-    await runtime.storage.addToolCall({
-      runId: detail.run.id,
-      toolName: "workflow.context",
-      category: "read",
-      status: "completed",
-      input: detail.task.workflowTemplate,
-      output: `Using non-GitHub context for ${detail.task.workflowTemplate}.`
-    });
-
-    return {
-      task: baseTask,
-      ...(startOptions ? { startOptions } : {})
-    };
-  }
-
-  try {
-    const token = githubSettings.tokenEncrypted ? decryptSecret(githubSettings.tokenEncrypted) : null;
-    const repoContext = await runtime.github.fetchRepositoryContext({
-      targetRepo: detail.task.targetRepo,
-      targetBranch: detail.task.targetBranch,
-      token,
-      allowlist: githubSettings.allowedRepos
-    });
-
-    await runtime.storage.addToolCall({
-      runId: detail.run.id,
-      toolName: "github.fetchRepositoryContext",
-      category: "read",
-      status: "completed",
-      input: `${detail.task.targetRepo}@${detail.task.targetBranch}`,
-      output: `Loaded ${repoContext.topLevelEntries.length} top-level entries and ${repoContext.selectedFiles.length} file excerpts from branch ${repoContext.resolvedBranch}.`
-    });
-
-    return {
-      task: {
-        ...baseTask,
-        attachments: [
-          ...baseTask.attachments,
-          {
-            name: "repo-context.md",
-            type: "markdown",
-            content: repoContext.markdown
-          }
-        ]
-      },
-      ...(startOptions ? { startOptions } : {})
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Repository context retrieval failed.";
-    await runtime.storage.addToolCall({
-      runId: detail.run.id,
-      toolName: "github.fetchRepositoryContext",
-      category: "read",
-      status: message.includes("allowlisted") ? "blocked" : "failed",
-      input: `${detail.task.targetRepo}@${detail.task.targetBranch}`,
-      output: message
-    });
-
-    return {
-      task: {
-        ...baseTask,
-        attachments: [
-          ...baseTask.attachments,
-          {
-            name: "repo-context.md",
-            type: "markdown",
-            content: `# Repository context unavailable\n\nThe workflow could not retrieve live GitHub data for \`${detail.task.targetRepo}\` on \`${detail.task.targetBranch}\`.\n\nReason: ${message}`
-          }
-        ]
-      },
-      ...(startOptions ? { startOptions } : {})
-    };
-  }
-}
-
-async function processRun(runId: string) {
-  const runtime = getRuntime();
-  const detail = await runtime.storage.getRunDetail(runId);
-  if (!detail) return;
-  if (!["queued", "routing", "planning", "executing", "reviewing"].includes(detail.run.status)) return;
-
-  try {
-    const { task: workflowTask, startOptions } = await buildWorkflowTask(detail, runtime);
-    const liveBeforeStart = await runtime.storage.getRunDetail(runId);
-    if (!liveBeforeStart || liveBeforeStart.run.status === "cancelled") {
-      return;
-    }
-
-    await runtime.storage.updateRun(runId, {
-      status: initialStatusForRole(startOptions?.startAt ?? "router"),
-      failureReason: null
-    });
-    const policies = await runtime.storage.getModelPolicies();
-    const iterator = (await streamWorkflow(workflowTask, policies.length > 0 ? policies : defaultModelPolicies, startOptions)) as unknown as AsyncIterable<
-      Record<string, Record<string, unknown>>
-    >;
-
-    for await (const updateChunk of iterator) {
-      const liveRun = await runtime.storage.getRunDetail(runId);
-      if (!liveRun || liveRun.run.status === "cancelled") {
-        return;
-      }
-
-      for (const [node, update] of Object.entries(updateChunk)) {
-        const role = roleFromNode(node);
-        const nextStatus = typeof update.status === "string" ? update.status : undefined;
-        if (nextStatus) {
-          await runtime.storage.updateRun(runId, { status: nextStatus as RunRecord["status"] });
-        }
-
-        const deliverable = (
-          update.deliverables as
-            | Record<string, { summary?: string; deliverable?: string; provider?: string; model?: string; executionMode?: string }>
-            | undefined
-        )?.[role];
-        if (deliverable) {
-          const step = await runtime.storage.createRunStep({
-            runId,
-            role,
-            status: "running",
-            input: `Role ${role} executed with ${deliverable.provider ?? "rule-based"}/${deliverable.model ?? "deterministic"} in ${deliverable.executionMode ?? "live"} mode.`
-          });
-          await runtime.storage.updateRunStep(step.id, {
-            status: "completed",
-            summary: deliverable.summary ?? null,
-            output: deliverable.deliverable ?? "",
-            endedAt: new Date().toISOString()
-          });
-          await runtime.storage.addToolCall({
-            runId,
-            stepId: step.id,
-            toolName: role === "router" && deliverable.executionMode === "rule" ? "router.decision" : "model.invoke",
-            category: "read",
-            status: "completed",
-            input: `${role} -> ${deliverable.provider ?? "rule-based"}/${deliverable.model ?? "deterministic"} (${deliverable.executionMode ?? "live"})`,
-            output: deliverable.summary ?? ""
-          });
-        }
-
-        const artifacts = Array.isArray(update.artifacts)
-          ? (update.artifacts as Array<{ artifactType: RunDetail["artifacts"][number]["artifactType"]; title: string; content: string }>)
-          : [];
-        for (const artifact of artifacts) {
-          await runtime.storage.addArtifact({
-            runId,
-            artifactType: artifact.artifactType,
-            title: artifact.title,
-            content: artifact.content
-          });
-        }
-
-        if (typeof update.finalSummary === "string") {
-          await runtime.storage.updateRun(runId, { finalSummary: update.finalSummary });
-        }
-      }
-    }
-
-    const liveAfterWorkflow = await runtime.storage.getRunDetail(runId);
-    if (!liveAfterWorkflow || liveAfterWorkflow.run.status === "cancelled") {
-      return;
-    }
-
-    await runtime.storage.requestApproval(runId);
-    await runtime.storage.updateRun(runId, { status: "pending_human" });
-  } catch (error) {
-    const liveRun = await runtime.storage.getRunDetail(runId);
-    if (!liveRun || liveRun.run.status === "cancelled") {
-      return;
-    }
-    await runtime.storage.updateRun(runId, {
-      status: "failed",
-      failureReason: error instanceof Error ? error.message : "Unknown workflow failure."
-    });
-  }
-}
-
-export async function ensureRuntimeStarted() {
-  const runtime = getRuntime();
-  if (!runtime.started) {
-    await runtime.queue.start(processRun);
-    runtime.started = true;
-  }
-  return runtime;
-}
-
-export function installRuntimeForTests(runtime: AppRuntime) {
-  globalThis.__AITEAMS_RUNTIME__ = runtime;
-}
-
-export function resetRuntimeForTests() {
-  globalThis.__AITEAMS_RUNTIME__ = undefined;
-}
-
-function normalizeAllowedRepos(items: string[]) {
-  return items
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      const [owner, repo] = item.split("/");
-      if (!owner || !repo) {
-        throw new Error(`Invalid repository allowlist entry: ${item}`);
-      }
-      return {
-        provider: "github" as const,
-        owner,
-        repo,
-        isAllowed: true
-      } satisfies GitHubRepoConnection;
-    });
-}
-
-export async function createTask(input: unknown) {
-  const runtime = await ensureRuntimeStarted();
-  const task = TaskRequestSchema.parse(input);
-  if (!isActiveWorkflowTemplate(task.workflowTemplate)) {
-    throw new Error("This workflow template is not active yet.");
-  }
-  if (isGitHubWorkflowTemplate(task.workflowTemplate) && !isValidGitHubRepoSlug(task.targetRepo)) {
-    throw new Error("Software Delivery Team requires a valid GitHub repository slug.");
-  }
-  const sanitizedTask: TaskRequest = {
-    ...task,
-    attachments: task.attachments.filter((attachment) => !isRetryAttachment(attachment))
-  };
-  const detail = await runtime.storage.createTaskAndRun(sanitizedTask);
-  await runtime.queue.enqueueRun(detail.run.id);
-  return detail;
-}
-
-export async function listRuns() {
-  const runtime = await ensureRuntimeStarted();
-  return runtime.storage.listRuns();
-}
-
-export async function listPendingApprovalRuns() {
-  const runtime = await ensureRuntimeStarted();
-  return runtime.storage.listPendingApprovalRuns();
-}
-
-export async function getRunDetail(runId: string) {
-  const runtime = await ensureRuntimeStarted();
-  return runtime.storage.getRunDetail(runId);
-}
-
-export async function getDashboardData() {
-  const runtime = await ensureRuntimeStarted();
-  const [summary, runs, approvals] = await Promise.all([
-    runtime.storage.getDashboardSummary(),
-    runtime.storage.listRuns(),
-    runtime.storage.listPendingApprovalRuns()
-  ]);
-  return {
-    summary,
-    runs,
-    approvals,
-    runtime: {
-      storageMode: runtime.storage.mode,
-      queueMode: runtime.queue.mode
-    }
-  };
-}
-
-export async function getGitHubSettingsView(): Promise<GitHubSettingsView> {
-  const runtime = await ensureRuntimeStarted();
-  const settings = await runtime.storage.getGitHubSettings();
-  const token = settings.tokenEncrypted ? decryptSecret(settings.tokenEncrypted) : null;
-  return GitHubSettingsViewSchema.parse({
-    hasToken: Boolean(token),
-    maskedToken: maskSecret(token),
-    allowedRepos: settings.allowedRepos
-  });
-}
-
-export async function getModelPoliciesView() {
-  const runtime = await ensureRuntimeStarted();
-  return runtime.storage.getModelPolicies();
-}
-
-export async function saveGitHubSettings(input: { token: string; allowedRepos: string[] }) {
-  const runtime = await ensureRuntimeStarted();
-  const normalized = normalizeAllowedRepos(input.allowedRepos);
-  await runtime.storage.saveGitHubSettings(encryptSecret(input.token), normalized);
-  return getGitHubSettingsView();
+  var __WORKGATE_RUNTIME__: AppRuntime | undefined;
 }
 
 function buildPullRequestBody(detail: RunDetail) {
-  const artifactSections = detail.artifacts
-    .map((artifact) => `## ${artifact.title}\n\n${artifact.content}`)
-    .join("\n\n");
+  const artifactSections = detail.artifacts.map((artifact) => `## ${artifact.title}\n\n${artifact.content}`).join("\n\n");
 
   return [
     "Workgate created this draft pull request after operator approval.",
@@ -641,8 +62,140 @@ function buildPullRequestBody(detail: RunDetail) {
   ].join("\n");
 }
 
+function createRuntime(): AppRuntime {
+  const env = getAppEnv();
+  return {
+    storage: createStorageAdapter(env.databaseUrl),
+    producer: createQueueProducer({ databaseUrl: env.databaseUrl, driver: env.queueDriver }),
+    consumer: createQueueConsumer({ databaseUrl: env.databaseUrl, driver: env.queueDriver }),
+    github: new GitHubExecutionService(),
+    resolveGitHubToken: (encrypted: string | null) => (encrypted ? decryptSecret(encrypted) : null),
+    workerStarted: false,
+    activeRuns: new Set<string>()
+  };
+}
+
+function getRuntime() {
+  if (!globalThis.__WORKGATE_RUNTIME__) {
+    globalThis.__WORKGATE_RUNTIME__ = createRuntime();
+  }
+  return globalThis.__WORKGATE_RUNTIME__;
+}
+
+export async function ensureWorkerStarted() {
+  return startWorker(getRuntime());
+}
+
+export async function stopEmbeddedWorker() {
+  return stopWorker(getRuntime());
+}
+
+export function installRuntimeForTests(runtime: {
+  storage: StorageAdapter;
+  github: GitHubExecutor;
+  producer?: QueueProducer;
+  consumer?: QueueConsumer;
+  queue?: QueueAdapter;
+  resolveGitHubToken?: (encrypted: string | null) => string | null;
+  started?: boolean;
+}) {
+  globalThis.__WORKGATE_RUNTIME__ = {
+    storage: runtime.storage,
+    producer: runtime.producer ?? runtime.queue!,
+    consumer: runtime.consumer ?? runtime.queue!,
+    github: runtime.github,
+    resolveGitHubToken: runtime.resolveGitHubToken ?? ((value) => value),
+    workerStarted: false,
+    activeRuns: new Set<string>()
+  };
+
+  if (runtime.started) {
+    void startWorker(globalThis.__WORKGATE_RUNTIME__);
+  }
+}
+
+export async function resetRuntimeForTests() {
+  if (globalThis.__WORKGATE_RUNTIME__) {
+    await stopWorker(globalThis.__WORKGATE_RUNTIME__);
+  }
+  globalThis.__WORKGATE_RUNTIME__ = undefined;
+}
+
+export function canRetryFailedOnly(detail: RunDetail) {
+  return runtimeCanRetryFailedOnly(detail);
+}
+
+export async function createTask(input: unknown) {
+  const runtime = getRuntime();
+  const payload = CreateTaskPayloadSchema.parse(input);
+  if (!isActiveWorkflowTemplate(payload.workflowTemplate)) {
+    throw new Error("This workflow template is not active yet.");
+  }
+
+  const task = normalizeCreateTaskPayload(payload);
+  if (isGitHubWorkflowTemplate(task.workflowTemplate) && !isValidGitHubRepoSlug(task.targetRepo)) {
+    throw new Error("Software Delivery Team requires a valid GitHub repository slug.");
+  }
+
+  const detail = await runtime.storage.createTaskAndRun(task);
+  await runtime.producer.enqueueRun(detail.run.id);
+  return detail;
+}
+
+export async function listRuns() {
+  return getRuntime().storage.listRuns();
+}
+
+export async function listPendingApprovalRuns() {
+  const runs = await getRuntime().storage.listPendingApprovalRuns();
+  const details = await Promise.all(runs.map((run) => getRuntime().storage.getRunDetail(run.id)));
+  return details.filter((detail): detail is RunDetail => Boolean(detail)).map(buildApprovalQueueItem);
+}
+
+export async function getRunDetail(runId: string) {
+  return getRuntime().storage.getRunDetail(runId);
+}
+
+export async function getDashboardData() {
+  const runtime = getRuntime();
+  const [summary, runs, approvals] = await Promise.all([runtime.storage.getDashboardSummary(), runtime.storage.listRuns(), listPendingApprovalRuns()]);
+  return {
+    summary,
+    runs,
+    approvals,
+    runtime: {
+      storageMode: runtime.storage.mode,
+      queueMode: runtime.producer.mode
+    }
+  };
+}
+
+export async function getGitHubSettingsView(): Promise<GitHubSettingsView> {
+  const runtime = getRuntime();
+  const settings = await runtime.storage.getGitHubSettings();
+  const token = runtime.resolveGitHubToken?.(settings.tokenEncrypted) ?? null;
+  return GitHubSettingsViewSchema.parse({
+    hasToken: Boolean(token),
+    maskedToken: maskSecret(token),
+    allowedRepos: settings.allowedRepos
+  });
+}
+
+export async function getModelPoliciesView() {
+  const runtime = getRuntime();
+  const policies = await runtime.storage.getModelPolicies();
+  return policies.length > 0 ? policies : defaultModelPolicies;
+}
+
+export async function saveGitHubSettings(input: { token: string; allowedRepos: string[] }) {
+  const runtime = getRuntime();
+  const normalized = normalizeAllowedRepos(input.allowedRepos);
+  await runtime.storage.saveGitHubSettings(encryptSecret(input.token), normalized);
+  return getGitHubSettingsView();
+}
+
 export async function approveRun(runId: string, reviewer: string, notes?: string | null) {
-  const runtime = await ensureRuntimeStarted();
+  const runtime = getRuntime();
   const detail = await runtime.storage.getRunDetail(runId);
   if (!detail) {
     throw new Error("Run not found.");
@@ -661,6 +214,18 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
       input: detail.task.workflowTemplate,
       output: "Final response packet marked as approved without external repository writes."
     });
+    await runtime.storage.addRunEvent({
+      runId,
+      eventType: "approval.approved",
+      status: "completed",
+      summary: `Approved by ${reviewer}.`
+    });
+    await runtime.storage.addRunEvent({
+      runId,
+      eventType: "workflow.packet.ready",
+      status: "completed",
+      summary: "Release packet is ready for delivery."
+    });
     await runtime.storage.updateRun(runId, {
       status: "completed",
       finalSummary: `Approved by ${approval.reviewer}. Final response packet is ready for delivery.`
@@ -669,11 +234,11 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
   }
 
   const githubSettings = await runtime.storage.getGitHubSettings();
-  if (!githubSettings.tokenEncrypted) {
+  const token = runtime.resolveGitHubToken?.(githubSettings.tokenEncrypted) ?? null;
+  if (!token) {
     throw new Error("GitHub token is not configured.");
   }
 
-  const token = decryptSecret(githubSettings.tokenEncrypted);
   const approval = await runtime.storage.setApproval(runId, "approve", reviewer, notes ?? null);
   const workspace = await runtime.github.createManagedWorkspace({
     runId,
@@ -693,6 +258,22 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     output: workspace.workspacePath
   });
 
+  const engineerPlan = extractEngineerPlan(detail);
+  if (engineerPlan && engineerPlan.fileOperations.length > 0) {
+    await runtime.github.applyFileOperations({
+      workspacePath: workspace.workspacePath,
+      operations: engineerPlan.fileOperations
+    });
+    await runtime.storage.addToolCall({
+      runId,
+      toolName: "workspace.applyFileOperations",
+      category: "write",
+      status: "completed",
+      input: `${engineerPlan.fileOperations.length} operations`,
+      output: engineerPlan.fileOperations.map((item) => `${item.type} ${item.path}`).join(", ")
+    });
+  }
+
   await runtime.github.writeRunArtifactsToWorkspace({
     workspacePath: workspace.workspacePath,
     runId,
@@ -706,6 +287,12 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     status: "completed",
     input: ".workgate/runs",
     output: `Prepared artifacts for ${runId}`
+  });
+  await runtime.storage.addRunEvent({
+    runId,
+    eventType: "github.branch.prepared",
+    summary: `Managed branch ${workspace.branchName} prepared.`,
+    payload: workspace.branchName
   });
 
   await runtime.github.commitAndPushWorkspace({
@@ -741,6 +328,19 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
     input: workspace.branchName,
     output: pullRequest.pullRequestUrl
   });
+  await runtime.storage.addRunEvent({
+    runId,
+    eventType: "approval.approved",
+    status: "completed",
+    summary: `Approved by ${reviewer}.`
+  });
+  await runtime.storage.addRunEvent({
+    runId,
+    eventType: "github.pr.opened",
+    status: "completed",
+    summary: "Draft pull request opened.",
+    payload: pullRequest.pullRequestUrl
+  });
 
   await runtime.storage.updateRun(runId, {
     status: "completed",
@@ -752,12 +352,19 @@ export async function approveRun(runId: string, reviewer: string, notes?: string
 }
 
 export async function rejectRun(runId: string, reviewer: string, notes?: string | null) {
-  const runtime = await ensureRuntimeStarted();
+  const runtime = getRuntime();
   const detail = await runtime.storage.getRunDetail(runId);
   if (!detail) {
     throw new Error("Run not found.");
   }
   const approval = await runtime.storage.setApproval(runId, "reject", reviewer, notes ?? null);
+  await runtime.storage.addRunEvent({
+    runId,
+    eventType: "approval.rejected",
+    status: "cancelled",
+    summary: `Rejected by ${reviewer}.`,
+    payload: notes ?? null
+  });
   await runtime.storage.updateRun(runId, {
     status: "cancelled",
     finalSummary: `Rejected by ${reviewer}.`
@@ -766,7 +373,7 @@ export async function rejectRun(runId: string, reviewer: string, notes?: string 
 }
 
 export async function cancelRun(runId: string) {
-  const runtime = await ensureRuntimeStarted();
+  const runtime = getRuntime();
   const detail = await runtime.storage.getRunDetail(runId);
   if (!detail) {
     throw new Error("Run not found.");
@@ -781,7 +388,7 @@ export async function cancelRun(runId: string) {
 }
 
 export async function deleteRun(runId: string) {
-  const runtime = await ensureRuntimeStarted();
+  const runtime = getRuntime();
   const detail = await runtime.storage.getRunDetail(runId);
   if (!detail) {
     throw new Error("Run not found.");
@@ -794,7 +401,7 @@ export async function deleteRun(runId: string) {
 }
 
 export async function retryRun(runId: string, payload: unknown) {
-  const runtime = await ensureRuntimeStarted();
+  const runtime = getRuntime();
   const detail = await runtime.storage.getRunDetail(runId);
   if (!detail) {
     throw new Error("Run not found.");
@@ -804,12 +411,8 @@ export async function retryRun(runId: string, payload: unknown) {
   }
 
   const { mode } = RetryRunPayloadSchema.parse(payload);
-  const baseTask = toTaskRequest(detail.task);
+  const retryTask = buildRetryTask(detail, mode);
   const seed = buildRetrySeed(detail, mode);
-  const retryTask: TaskRequest = {
-    ...baseTask,
-    attachments: seed ? [...baseTask.attachments.filter((attachment) => !isRetryAttachment(attachment)), buildRetryAttachment(seed)] : baseTask.attachments.filter((attachment) => !isRetryAttachment(attachment))
-  };
 
   const nextDetail = await runtime.storage.createTaskAndRun(retryTask);
   await runtime.storage.addToolCall({
@@ -818,22 +421,22 @@ export async function retryRun(runId: string, payload: unknown) {
     category: "read",
     status: "completed",
     input: `${mode} retry requested for ${runId}`,
-    output: seed ? `Resume from ${seed.startAt}` : "Fresh retry from router"
+    output: mode === "failed_only" ? "Resume requested from failed stage." : "Fresh retry from router"
   });
 
   if (seed) {
     await seedRetryHistory(runtime, nextDetail.run.id, seed);
   }
 
-  await runtime.queue.enqueueRun(nextDetail.run.id);
+  await runtime.producer.enqueueRun(nextDetail.run.id);
   return nextDetail;
 }
 
 export async function getRuntimeInfo() {
-  const runtime = await ensureRuntimeStarted();
+  const runtime = getRuntime();
   return {
     storageMode: runtime.storage.mode,
-    queueMode: runtime.queue.mode,
+    queueMode: runtime.producer.mode,
     suggestedBranch: buildManagedBranchName("preview", "sample task")
   };
 }

@@ -20,6 +20,9 @@ importers:
       globals:
         specifier: ^16.4.0
         version: 16.5.0
+      tsx:
+        specifier: ^4.20.6
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -44,6 +47,9 @@ importers:
       '@workgate/github':
         specifier: workspace:*
         version: link:../../packages/github
+      '@workgate/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@workgate/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -91,14 +97,20 @@ importers:
         specifier: ^4.1.14
         version: 4.2.2
 
-  packages/agents:
+  apps/worker:
     dependencies:
+      '@workgate/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@workgate/github':
         specifier: workspace:*
-        version: link:../github
-      '@workgate/shared':
+        version: link:../../packages/github
+      '@workgate/runtime':
         specifier: workspace:*
-        version: link:../shared
+        version: link:../../packages/runtime
+
+  packages/agents:
+    dependencies:
       '@langchain/anthropic':
         specifier: ^1.3.26
         version: 1.3.26(@langchain/core@1.1.38(openai@6.33.0(zod@4.3.6)))
@@ -114,6 +126,12 @@ importers:
       '@langchain/openai':
         specifier: ^1.4.1
         version: 1.4.1(@langchain/core@1.1.38(openai@6.33.0(zod@4.3.6)))
+      '@workgate/github':
+        specifier: workspace:*
+        version: link:../github
+      '@workgate/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^4.1.11
         version: 4.3.6
@@ -148,6 +166,21 @@ importers:
       slugify:
         specifier: ^1.6.6
         version: 1.6.9
+
+  packages/runtime:
+    dependencies:
+      '@workgate/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@workgate/db':
+        specifier: workspace:*
+        version: link:../db
+      '@workgate/github':
+        specifier: workspace:*
+        version: link:../github
+      '@workgate/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/shared:
     dependencies:

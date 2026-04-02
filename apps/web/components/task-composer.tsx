@@ -47,6 +47,36 @@ const initialState = {
   attachmentContent: ""
 };
 
+function buildWorkflowInput(
+  workflowTemplate: WorkflowTemplateId,
+  targetRepo: string,
+  targetBranch: string
+) {
+  switch (workflowTemplate) {
+    case "rfp_response":
+      return {
+        accountName: targetRepo,
+        knowledgeSource: targetBranch
+      };
+    case "social_media_ops":
+      return {
+        brandAccount: targetRepo,
+        channelMix: targetBranch
+      };
+    case "security_questionnaire":
+      return {
+        vendorProfile: targetRepo,
+        evidenceSet: targetBranch
+      };
+    case "software_delivery":
+    default:
+      return {
+        repository: targetRepo,
+        branch: targetBranch
+      };
+  }
+}
+
 function iconForWorkflow(template: WorkflowTemplateId) {
   switch (template) {
     case "rfp_response":
@@ -103,8 +133,7 @@ export function TaskComposer() {
       goal: form.goal,
       taskType: form.taskType,
       workflowTemplate: form.workflowTemplate,
-      targetRepo: form.targetRepo,
-      targetBranch: form.targetBranch,
+      workflowInput: buildWorkflowInput(form.workflowTemplate, form.targetRepo, form.targetBranch),
       constraints: form.constraints
         .split("\n")
         .map((item) => item.trim())

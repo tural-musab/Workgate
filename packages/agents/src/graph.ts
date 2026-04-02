@@ -5,9 +5,9 @@ import {
   type AgentRole,
   type ArtifactType,
   type ModelPolicy,
-  type TaskRoute,
   type RunStatus,
   type TaskRequest,
+  type TaskRoute,
   type WorkflowTemplateId,
   defaultModelPolicies
 } from "@workgate/shared";
@@ -19,6 +19,12 @@ export type ArtifactDraft = {
   title: string;
   content: string;
 };
+
+export interface WorkflowObserver {
+  onStepStart?(input: { role: AgentRole; provider?: string | null; model?: string | null; executionMode?: string | null }): Promise<void> | void;
+  onStepComplete?(input: { role: AgentRole; deliverable: AgentDeliverable }): Promise<void> | void;
+  onStepFailed?(input: { role: AgentRole; provider?: string | null; model?: string | null; executionMode?: string | null; error: string }): Promise<void> | void;
+}
 
 type WorkflowState = {
   task: TaskRequest;
@@ -67,8 +73,16 @@ function policyForRole(policies: ModelPolicy[], role: AgentRole) {
   return policies.find((policy) => policy.role === role) ?? defaultModelPolicies.find((policy) => policy.role === role)!;
 }
 
-async function runRole(role: AgentRole, state: WorkflowState, policies: ModelPolicy[], context: string) {
+async function runRole(role: AgentRole, state: WorkflowState, policies: ModelPolicy[], context: string, observer?: WorkflowObserver) {
   const policy = policyForRole(policies, role);
+  const mockMode = process.env.WORKGATE_MOCK_MODE !== "false";
+
+  await observer?.onStepStart?.({
+    role,
+    provider: mockMode ? "mock" : policy.provider,
+    model: mockMode ? `mock-${role}` : policy.model,
+    executionMode: mockMode ? "mock" : "live"
+  });
 
   try {
     const deliverable = await invokeRoleDeliverable({
@@ -76,8 +90,10 @@ async function runRole(role: AgentRole, state: WorkflowState, policies: ModelPol
       role,
       policy,
       context,
-      mockMode: process.env.WORKGATE_MOCK_MODE !== "false"
+      mockMode
     });
+
+    await observer?.onStepComplete?.({ role, deliverable });
 
     return {
       deliverables: { [role]: deliverable },
@@ -85,6 +101,13 @@ async function runRole(role: AgentRole, state: WorkflowState, policies: ModelPol
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown model invocation failure.";
+    await observer?.onStepFailed?.({
+      role,
+      provider: policy.provider,
+      model: policy.model,
+      executionMode: mockMode ? "mock" : "live",
+      error: message
+    });
     throw new Error(`${role} failed with ${policy.provider}/${policy.model}: ${message}`);
   }
 }
@@ -100,9 +123,12 @@ function titleForArtifact(template: WorkflowTemplateId, artifactType: ArtifactTy
       prd: "Response strategy brief",
       architecture_memo: "Solution positioning memo",
       patch_summary: "Response draft",
-      test_report: "Approval readiness checklist",
+      diff_preview: "Draft evidence preview",
+      test_report: "Response validation report",
       review_report: "Red-team review",
-      changelog: "Final proposal packet"
+      approval_checklist: "Approval checklist",
+      release_packet: "Release packet",
+      changelog: "Response summary"
     };
     return titles[artifactType];
   }
@@ -112,8 +138,11 @@ function titleForArtifact(template: WorkflowTemplateId, artifactType: ArtifactTy
     prd: "Product brief",
     architecture_memo: "Architecture memo",
     patch_summary: "Patch summary",
+    diff_preview: "Diff preview",
     test_report: "Test report",
     review_report: "Review report",
+    approval_checklist: "Approval checklist",
+    release_packet: "Release packet",
     changelog: "Change summary"
   };
   return titles[artifactType];
@@ -134,58 +163,79 @@ export interface WorkflowStartOptions {
   deliverables?: Partial<Record<AgentRole, AgentDeliverable>>;
   artifacts?: ArtifactDraft[];
   needsHuman?: boolean;
+  observer?: WorkflowObserver;
 }
 
 function nodeForRole(role: AgentRole) {
   return role === "router" ? "routerNode" : role;
 }
 
-function buildWorkflowGraph(policies: ModelPolicy[]) {
+function buildWorkflowGraph(policies: ModelPolicy[], observer?: WorkflowObserver) {
   return new StateGraph(WorkflowAnnotation)
     .addNode("routerNode", async (state) => {
-      const route = await routeTask(state.task, policyForRole(policies, "router"), {
-        mockMode: process.env.WORKGATE_MOCK_MODE !== "false"
+      const routerPolicy = policyForRole(policies, "router");
+      const mockMode = process.env.WORKGATE_MOCK_MODE !== "false";
+      await observer?.onStepStart?.({
+        role: "router",
+        provider: mockMode ? "mock" : routerPolicy.provider,
+        model: mockMode ? "mock-router" : routerPolicy.model,
+        executionMode: mockMode ? "mock" : "rule"
       });
-      const routeLines = [
-        `Route: ${route.route}`,
-        `Risk: ${route.risk}`,
-        `Needs human: ${route.needsHuman}`,
-        `Decision source: ${route.source}`,
-        route.provider && route.model ? `Model: ${route.provider}/${route.model}` : "Model: deterministic rules"
-      ];
 
-      return {
-        route,
-        status: route.route === "research" ? "planning" : "routing",
-        deliverables: {
-          router: {
-            summary: route.reason,
-            deliverable: routeLines.join("\n"),
-            risks: route.risk === "high" ? ["High-risk route detected."] : [],
-            needsHuman: route.needsHuman,
-            provider: route.provider ?? "mock",
-            model: route.model ?? "deterministic-router",
-            executionMode: route.source === "model" ? "live" : route.source === "fallback" ? "mock" : "rule"
-          }
-        },
-        needsHuman: route.needsHuman
-      };
+      try {
+        const route = await routeTask(state.task, routerPolicy, { mockMode });
+        const routeLines = [
+          `Route: ${route.route}`,
+          `Risk: ${route.risk}`,
+          `Needs human: ${route.needsHuman}`,
+          `Decision source: ${route.source}`,
+          route.provider && route.model ? `Model: ${route.provider}/${route.model}` : "Model: deterministic rules"
+        ];
+        const routerDeliverable: AgentDeliverable = {
+          summary: route.reason,
+          deliverable: routeLines.join("\n"),
+          risks: route.risk === "high" ? ["High-risk route detected."] : [],
+          needsHuman: route.needsHuman,
+          provider: route.provider ?? "mock",
+          model: route.model ?? "deterministic-router",
+          executionMode: route.executionMode ?? (route.source === "model" ? "live" : route.source === "fallback" ? "mock" : "rule"),
+          inputTokens: route.inputTokens,
+          outputTokens: route.outputTokens,
+          costUsd: route.costUsd
+        };
+        await observer?.onStepComplete?.({ role: "router", deliverable: routerDeliverable });
+
+        return {
+          route,
+          status: route.route === "research" ? "planning" : "routing",
+          deliverables: { router: routerDeliverable },
+          needsHuman: route.needsHuman
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown router failure.";
+        await observer?.onStepFailed?.({
+          role: "router",
+          provider: mockMode ? "mock" : routerPolicy.provider,
+          model: mockMode ? "mock-router" : routerPolicy.model,
+          executionMode: mockMode ? "mock" : "rule",
+          error: message
+        });
+        throw error;
+      }
     })
-    .addNode("coordinator", async (state) => {
-      return {
-        ...(await runRole("coordinator", state, policies, `Route decision: ${state.route?.route ?? "engineer"}`)),
-        status: "planning"
-      };
-    })
+    .addNode("coordinator", async (state) => ({
+      ...(await runRole("coordinator", state, policies, `Route decision: ${state.route?.route ?? "engineer"}`, observer)),
+      status: "planning"
+    }))
     .addNode("research", async (state) => {
-      const result = await runRole("research", state, policies, state.deliverables.coordinator?.deliverable ?? "");
+      const result = await runRole("research", state, policies, state.deliverables.coordinator?.deliverable ?? "", observer);
       return {
         ...result,
         artifacts: makeArtifact("research_note", titleForArtifact(state.task.workflowTemplate, "research_note"), result.deliverables.research?.deliverable ?? "")
       };
     })
     .addNode("pm", async (state) => {
-      const result = await runRole("pm", state, policies, state.deliverables.research?.deliverable ?? "");
+      const result = await runRole("pm", state, policies, state.deliverables.research?.deliverable ?? "", observer);
       return {
         ...result,
         artifacts: makeArtifact("prd", titleForArtifact(state.task.workflowTemplate, "prd"), result.deliverables.pm?.deliverable ?? "")
@@ -193,7 +243,7 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
     })
     .addNode("architect", async (state) => {
       const context = [state.deliverables.research?.deliverable, state.deliverables.pm?.deliverable].filter(Boolean).join("\n\n");
-      const result = await runRole("architect", state, policies, context);
+      const result = await runRole("architect", state, policies, context, observer);
       return {
         ...result,
         status: "executing",
@@ -206,7 +256,7 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
     })
     .addNode("engineer", async (state) => {
       const context = [state.deliverables.architect?.deliverable, state.deliverables.pm?.deliverable].filter(Boolean).join("\n\n");
-      const result = await runRole("engineer", state, policies, context);
+      const result = await runRole("engineer", state, policies, context, observer);
       return {
         ...result,
         artifacts: makeArtifact("patch_summary", titleForArtifact(state.task.workflowTemplate, "patch_summary"), result.deliverables.engineer?.deliverable ?? "")
@@ -218,8 +268,14 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
       if (providerFamily(engineerPolicy) === providerFamily(reviewerPolicy)) {
         throw new Error("Reviewer provider must differ from engineer provider.");
       }
-      const context = [state.deliverables.engineer?.deliverable, state.deliverables.architect?.deliverable].filter(Boolean).join("\n\n");
-      const result = await runRole("reviewer", state, policies, context);
+      const context = [
+        state.deliverables.engineer?.deliverable,
+        state.deliverables.engineer?.engineerPlan ? `## Structured change plan\n${JSON.stringify(state.deliverables.engineer.engineerPlan, null, 2)}` : null,
+        state.deliverables.architect?.deliverable
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const result = await runRole("reviewer", state, policies, context, observer);
       return {
         ...result,
         status: "reviewing",
@@ -231,24 +287,37 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
       const context = Object.entries(state.deliverables)
         .map(([role, deliverable]) => `## ${role}\n${deliverable?.deliverable ?? ""}`)
         .join("\n\n");
-      const result = await runRole("docs", state, policies, context);
-      const changelog = result.deliverables.docs?.deliverable ?? "";
-      const testReport =
-        state.task.workflowTemplate === "rfp_response"
-          ? [
-              "## Approval readiness checklist",
-              "",
-              "- Workflow executed through router, coordinator, research, pm, architect, engineer, reviewer, docs.",
-              "- Human approval is required before the proposal packet is treated as ready for external delivery.",
-              "- Operator should validate claims, pricing assumptions, and evidence coverage before approval."
-            ].join("\n")
-          : [
-              "## Test report",
-              "",
-              "- Pipeline executed through router, coordinator, research, pm, architect, engineer, reviewer, docs.",
-              "- Human approval is required before branch push or draft pull request creation.",
-              "- Operator should validate repository diff before approving."
-            ].join("\n");
+      const result = await runRole("docs", state, policies, context, observer);
+      const docsBody = result.deliverables.docs?.deliverable ?? "";
+
+      if (state.task.workflowTemplate === "rfp_response") {
+        const approvalChecklist = [
+          "## Approval checklist",
+          "",
+          "- Verify buyer requirements and any questionnaire responses.",
+          "- Confirm pricing assumptions and proof points.",
+          "- Confirm the release packet is ready for external delivery after approval."
+        ].join("\n");
+
+        return {
+          ...result,
+          status: "pending_human",
+          finalSummary: result.deliverables.docs?.summary ?? "Proposal packet ready for approval.",
+          artifacts: [
+            { artifactType: "approval_checklist", title: titleForArtifact(state.task.workflowTemplate, "approval_checklist"), content: approvalChecklist },
+            { artifactType: "release_packet", title: titleForArtifact(state.task.workflowTemplate, "release_packet"), content: docsBody }
+          ],
+          needsHuman: true
+        };
+      }
+
+      const testReport = [
+        "## Test report",
+        "",
+        "- Pipeline executed through router, coordinator, research, pm, architect, engineer, reviewer, and docs.",
+        "- Human approval is required before branch push or draft pull request creation.",
+        "- Operator should validate the generated diff preview before approving."
+      ].join("\n");
 
       return {
         ...result,
@@ -256,7 +325,7 @@ function buildWorkflowGraph(policies: ModelPolicy[]) {
         finalSummary: result.deliverables.docs?.summary ?? "Run completed and waiting for approval.",
         artifacts: [
           { artifactType: "test_report", title: titleForArtifact(state.task.workflowTemplate, "test_report"), content: testReport },
-          { artifactType: "changelog", title: titleForArtifact(state.task.workflowTemplate, "changelog"), content: changelog }
+          { artifactType: "changelog", title: titleForArtifact(state.task.workflowTemplate, "changelog"), content: docsBody }
         ],
         needsHuman: true
       };
@@ -296,12 +365,12 @@ function buildInitialState(task: TaskRequest, options?: WorkflowStartOptions): W
 }
 
 export async function streamWorkflow(task: TaskRequest, policies: ModelPolicy[] = defaultModelPolicies, options?: WorkflowStartOptions) {
-  const compiled = buildWorkflowGraph(policies);
+  const compiled = buildWorkflowGraph(policies, options?.observer);
   return compiled.stream(buildInitialState(task, options), { streamMode: "updates" });
 }
 
 export async function runWorkflow(task: TaskRequest, policies: ModelPolicy[] = defaultModelPolicies, options?: WorkflowStartOptions): Promise<WorkflowResult> {
-  const compiled = buildWorkflowGraph(policies);
+  const compiled = buildWorkflowGraph(policies, options?.observer);
 
   const result = await compiled.invoke(buildInitialState(task, options));
 

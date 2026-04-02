@@ -17,6 +17,7 @@ export type WorkflowPresentation = {
   goalPlaceholder: string;
   attachmentNameDefault: string;
   attachmentContentPlaceholder: string;
+  approvalActionLabel: string;
   idleHint: string;
   reviewerHint: string;
   accentText: string;
@@ -42,6 +43,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Describe the engineering outcome, affected systems, and why the change matters.",
       attachmentNameDefault: "brief.md",
       attachmentContentPlaceholder: "Issue notes, stack traces, acceptance details, or architecture context",
+      approvalActionLabel: "Approve and create draft PR",
       idleHint: "Approvals create draft pull requests only after the software run passes review.",
       reviewerHint: "GitHub write access stays blocked until the operator approves the run.",
       accentText: "text-cyan-200/80",
@@ -64,6 +66,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Describe the bid objective, decision criteria, deadlines, and what the response must prove.",
       attachmentNameDefault: "rfp-brief.md",
       attachmentContentPlaceholder: "Paste the RFP brief, buyer questions, win themes, or evaluation rules",
+      approvalActionLabel: "Approve proposal packet",
       idleHint: "Approvals mark the response pack as ready for client review. No GitHub write step is required.",
       reviewerHint: "The team pauses before releasing any client-ready proposal packet.",
       accentText: "text-amber-200/90",
@@ -86,6 +89,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Goal",
       attachmentNameDefault: "brief.md",
       attachmentContentPlaceholder: "Brief",
+      approvalActionLabel: "Approve run",
       idleHint: "",
       reviewerHint: "",
       accentText: "text-pink-200/90",
@@ -108,6 +112,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Goal",
       attachmentNameDefault: "brief.md",
       attachmentContentPlaceholder: "Brief",
+      approvalActionLabel: "Approve run",
       idleHint: "",
       reviewerHint: "",
       accentText: "text-emerald-200/90",
@@ -132,6 +137,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Mühendislik çıktısını, etkilenen sistemleri ve değişikliğin neden önemli olduğunu yaz.",
       attachmentNameDefault: "brief.md",
       attachmentContentPlaceholder: "Issue notları, loglar, kabul kriterleri veya mimari bağlam",
+      approvalActionLabel: "Onayla ve taslak PR oluştur",
       idleHint: "Yazılım akışında onay sonrası yalnızca draft PR açılır.",
       reviewerHint: "Operatör onayı gelmeden GitHub yazma adımı açılmaz.",
       accentText: "text-cyan-200/80",
@@ -154,6 +160,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Teklif hedefini, karar kriterlerini, teslim tarihlerini ve yanıtın neyi kanıtlaması gerektiğini yaz.",
       attachmentNameDefault: "rfp-brief.md",
       attachmentContentPlaceholder: "RFP özeti, alıcı soruları, kazanma temaları veya değerlendirme kurallarını ekle",
+      approvalActionLabel: "Teklif paketini onayla",
       idleHint: "Onay sonrası istemciye hazır teklif paketi tamamlandı olarak işaretlenir. GitHub yazma adımı yoktur.",
       reviewerHint: "Takım, müşteriye gidecek paket açılmadan önce insan onayında durur.",
       accentText: "text-amber-200/90",
@@ -176,6 +183,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Hedef",
       attachmentNameDefault: "brief.md",
       attachmentContentPlaceholder: "Brief",
+      approvalActionLabel: "Run'ı onayla",
       idleHint: "",
       reviewerHint: "",
       accentText: "text-pink-200/90",
@@ -198,6 +206,7 @@ const catalog: Record<Locale, WorkflowPresentation[]> = {
       goalPlaceholder: "Hedef",
       attachmentNameDefault: "brief.md",
       attachmentContentPlaceholder: "Brief",
+      approvalActionLabel: "Run'ı onayla",
       idleHint: "",
       reviewerHint: "",
       accentText: "text-emerald-200/90",
@@ -217,4 +226,3 @@ export function listWorkflowPresentations(locale: Locale) {
 export function getWorkflowPresentation(template: WorkflowTemplateId, locale: Locale) {
   return catalog[locale].find((item) => item.id === template) ?? catalog[locale][0]!;
 }
-

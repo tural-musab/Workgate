@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -11,9 +11,13 @@ import {
   type ArtifactRecord,
   type ArtifactType,
   type DashboardSummary,
+  type ExecutionMode,
   type GitHubRepoConnection,
   type ModelPolicy,
+  type ModelProvider,
   type RunDetail,
+  type RunEventRecord,
+  type RunEventType,
   type RunRecord,
   type RunStatus,
   type StepRecord,
@@ -23,21 +27,40 @@ import {
   defaultModelPolicies
 } from "@workgate/shared";
 
-import { appSettings, approvals, artifacts, modelPolicies, repoConnections, runSteps, runs, taskRequests, toolCalls } from "./schema";
+import { appSettings, approvals, artifacts, modelPolicies, repoConnections, runEvents, runSteps, runs, taskRequests, toolCalls } from "./schema";
 
 type PersistedTask = TaskRequest & { id: string; createdAt: string };
 type StoredGitHubSettings = { tokenEncrypted: string | null; allowedRepos: GitHubRepoConnection[] };
+
+type StepWriteFields = {
+  provider?: ModelProvider | null;
+  model?: string | null;
+  executionMode?: ExecutionMode | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  costUsd?: number | null;
+};
 
 export interface StorageAdapter {
   readonly mode: "memory" | "postgres";
   createTaskAndRun(task: TaskRequest): Promise<RunDetail>;
   listRuns(): Promise<RunRecord[]>;
+  listRunsByStatus(statuses: RunStatus[]): Promise<RunRecord[]>;
   listPendingApprovalRuns(): Promise<RunRecord[]>;
   getRunDetail(runId: string): Promise<RunDetail | null>;
   deleteRun(runId: string): Promise<boolean>;
   updateRun(runId: string, patch: Partial<Pick<RunRecord, "status" | "branchName" | "failureReason" | "finalSummary">>): Promise<void>;
-  createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null }): Promise<StepRecord>;
-  updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt">>): Promise<void>;
+  createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null } & StepWriteFields): Promise<StepRecord>;
+  updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt"> & StepWriteFields>): Promise<void>;
+  addRunEvent(input: {
+    runId: string;
+    stepId?: string | null;
+    role?: AgentRole | null;
+    eventType: RunEventType;
+    status?: RunStatus | null;
+    summary: string;
+    payload?: string | null;
+  }): Promise<RunEventRecord>;
   addArtifact(input: { runId: string; artifactType: ArtifactType; title: string; content: string }): Promise<ArtifactRecord>;
   addToolCall(input: {
     runId: string;
@@ -68,6 +91,21 @@ function fromBooleanText(value: string) {
   return value === "true";
 }
 
+function parseNullableNumber(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sortByCreatedAtAsc<T extends { createdAt: string }>(items: T[]) {
+  return [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function sortSteps(items: StepRecord[]) {
+  return [...items].sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""));
+}
+
 function hydrateRun(row: typeof runs.$inferSelect): RunRecord {
   return {
     id: row.id,
@@ -75,7 +113,7 @@ function hydrateRun(row: typeof runs.$inferSelect): RunRecord {
     status: row.status as RunStatus,
     title: row.title,
     taskType: row.taskType as TaskRequest["taskType"],
-    workflowTemplate: (row.workflowTemplate ?? "software_delivery") as TaskRequest["workflowTemplate"],
+    workflowTemplate: row.workflowTemplate as TaskRequest["workflowTemplate"],
     targetRepo: row.targetRepo,
     targetBranch: row.targetBranch,
     branchName: row.branchName,
@@ -92,7 +130,8 @@ function hydrateTask(row: typeof taskRequests.$inferSelect): PersistedTask {
     title: row.title,
     goal: row.goal,
     taskType: row.taskType as TaskRequest["taskType"],
-    workflowTemplate: (row.workflowTemplate ?? "software_delivery") as TaskRequest["workflowTemplate"],
+    workflowTemplate: row.workflowTemplate as TaskRequest["workflowTemplate"],
+    workflowInput: row.workflowInput as TaskRequest["workflowInput"],
     targetRepo: row.targetRepo,
     targetBranch: row.targetBranch,
     constraints: row.constraints,
@@ -112,6 +151,12 @@ function hydrateStep(row: typeof runSteps.$inferSelect): StepRecord {
     input: row.input,
     output: row.output,
     error: row.error,
+    provider: (row.provider as ModelProvider | null) ?? null,
+    model: row.model,
+    executionMode: (row.executionMode as ExecutionMode | null) ?? null,
+    inputTokens: row.inputTokens ?? null,
+    outputTokens: row.outputTokens ?? null,
+    costUsd: parseNullableNumber(row.costUsd),
     startedAt: row.startedAt?.toISOString() ?? null,
     endedAt: row.endedAt?.toISOString() ?? null
   };
@@ -140,6 +185,20 @@ function hydrateApproval(row: typeof approvals.$inferSelect): ApprovalRecord {
   };
 }
 
+function hydrateRunEvent(row: typeof runEvents.$inferSelect): RunEventRecord {
+  return {
+    id: row.id,
+    runId: row.runId,
+    stepId: row.stepId,
+    role: (row.role as AgentRole | null) ?? null,
+    eventType: row.eventType as RunEventType,
+    status: (row.status as RunStatus | null) ?? null,
+    summary: row.summary,
+    payload: row.payload,
+    createdAt: row.createdAt.toISOString()
+  };
+}
+
 function hydrateToolCall(row: typeof toolCalls.$inferSelect): ToolCallRecord {
   return {
     id: row.id,
@@ -160,6 +219,7 @@ class MemoryStorage implements StorageAdapter {
   private tasks = new Map<string, PersistedTask>();
   private runs = new Map<string, RunRecord>();
   private steps = new Map<string, StepRecord>();
+  private events = new Map<string, RunEventRecord>();
   private artifacts = new Map<string, ArtifactRecord>();
   private approvals = new Map<string, ApprovalRecord>();
   private toolCalls = new Map<string, ToolCallRecord>();
@@ -188,15 +248,28 @@ class MemoryStorage implements StorageAdapter {
     };
     this.tasks.set(taskId, persistedTask);
     this.runs.set(runId, run);
-    return { run, task: persistedTask, steps: [], artifacts: [], approvals: [], toolCalls: [] };
+    await this.addRunEvent({
+      runId,
+      eventType: "run.queued",
+      status: "queued",
+      summary: "Run accepted and queued for worker execution."
+    });
+    return this.getRunDetail(runId).then((detail) => {
+      if (!detail) throw new Error("Unable to hydrate run after insert.");
+      return detail;
+    });
   }
 
   async listRuns() {
     return [...this.runs.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async listRunsByStatus(statuses: RunStatus[]) {
+    return [...this.runs.values()].filter((run) => statuses.includes(run.status));
+  }
+
   async listPendingApprovalRuns() {
-    return [...this.runs.values()].filter((run) => run.status === "pending_human");
+    return [...this.runs.values()].filter((run) => run.status === "pending_human").sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   async getRunDetail(runId: string) {
@@ -207,10 +280,11 @@ class MemoryStorage implements StorageAdapter {
     return {
       run,
       task,
-      steps: [...this.steps.values()].filter((step) => step.runId === runId),
-      artifacts: [...this.artifacts.values()].filter((artifact) => artifact.runId === runId),
-      approvals: [...this.approvals.values()].filter((approval) => approval.runId === runId),
-      toolCalls: [...this.toolCalls.values()].filter((toolCall) => toolCall.runId === runId)
+      steps: sortSteps([...this.steps.values()].filter((step) => step.runId === runId)),
+      artifacts: sortByCreatedAtAsc([...this.artifacts.values()].filter((artifact) => artifact.runId === runId)),
+      approvals: sortByCreatedAtAsc([...this.approvals.values()].filter((approval) => approval.runId === runId)),
+      events: sortByCreatedAtAsc([...this.events.values()].filter((event) => event.runId === runId)),
+      toolCalls: sortByCreatedAtAsc([...this.toolCalls.values()].filter((toolCall) => toolCall.runId === runId))
     };
   }
 
@@ -220,6 +294,9 @@ class MemoryStorage implements StorageAdapter {
 
     for (const [id, step] of this.steps.entries()) {
       if (step.runId === runId) this.steps.delete(id);
+    }
+    for (const [id, event] of this.events.entries()) {
+      if (event.runId === runId) this.events.delete(id);
     }
     for (const [id, artifact] of this.artifacts.entries()) {
       if (artifact.runId === runId) this.artifacts.delete(id);
@@ -246,7 +323,7 @@ class MemoryStorage implements StorageAdapter {
     });
   }
 
-  async createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null }) {
+  async createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null } & StepWriteFields) {
     const step: StepRecord = {
       id: randomUUID(),
       runId: input.runId,
@@ -256,6 +333,12 @@ class MemoryStorage implements StorageAdapter {
       input: input.input ?? null,
       output: null,
       error: null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+      executionMode: input.executionMode ?? null,
+      inputTokens: input.inputTokens ?? null,
+      outputTokens: input.outputTokens ?? null,
+      costUsd: input.costUsd ?? null,
       startedAt: nowIso(),
       endedAt: null
     };
@@ -263,10 +346,43 @@ class MemoryStorage implements StorageAdapter {
     return step;
   }
 
-  async updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt">>) {
+  async updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt"> & StepWriteFields>) {
     const step = this.steps.get(stepId);
     if (!step) return;
-    this.steps.set(stepId, { ...step, ...patch });
+    this.steps.set(stepId, {
+      ...step,
+      ...patch,
+      provider: patch.provider === undefined ? step.provider : patch.provider,
+      model: patch.model === undefined ? step.model : patch.model,
+      executionMode: patch.executionMode === undefined ? step.executionMode : patch.executionMode,
+      inputTokens: patch.inputTokens === undefined ? step.inputTokens : patch.inputTokens,
+      outputTokens: patch.outputTokens === undefined ? step.outputTokens : patch.outputTokens,
+      costUsd: patch.costUsd === undefined ? step.costUsd : patch.costUsd
+    });
+  }
+
+  async addRunEvent(input: {
+    runId: string;
+    stepId?: string | null;
+    role?: AgentRole | null;
+    eventType: RunEventType;
+    status?: RunStatus | null;
+    summary: string;
+    payload?: string | null;
+  }) {
+    const event: RunEventRecord = {
+      id: randomUUID(),
+      runId: input.runId,
+      stepId: input.stepId ?? null,
+      role: input.role ?? null,
+      eventType: input.eventType,
+      status: input.status ?? null,
+      summary: input.summary,
+      payload: input.payload ?? null,
+      createdAt: nowIso()
+    };
+    this.events.set(event.id, event);
+    return event;
   }
 
   async addArtifact(input: { runId: string; artifactType: ArtifactType; title: string; content: string }) {
@@ -321,14 +437,14 @@ class MemoryStorage implements StorageAdapter {
   }
 
   async setApproval(runId: string, action: ApprovalAction, reviewer: string, notes?: string | null) {
-    const approval = [...this.approvals.values()].reverse().find((item) => item.runId === runId && item.action === null);
+    const pending = [...this.approvals.values()].reverse().find((approval) => approval.runId === runId && approval.action === null);
     const record: ApprovalRecord = {
-      id: approval?.id ?? randomUUID(),
+      id: pending?.id ?? randomUUID(),
       runId,
       action,
       reviewer,
       notes: notes ?? null,
-      createdAt: approval?.createdAt ?? nowIso(),
+      createdAt: pending?.createdAt ?? nowIso(),
       updatedAt: nowIso()
     };
     this.approvals.set(record.id, record);
@@ -367,7 +483,7 @@ class PostgresStorage implements StorageAdapter {
   constructor(databaseUrl: string) {
     this.client = postgres(databaseUrl, { prepare: false });
     this.database = drizzle(this.client, {
-      schema: { appSettings, approvals, artifacts, modelPolicies, repoConnections, runSteps, runs, taskRequests, toolCalls }
+      schema: { appSettings, approvals, artifacts, modelPolicies, repoConnections, runEvents, runSteps, runs, taskRequests, toolCalls }
     });
   }
 
@@ -376,34 +492,49 @@ class PostgresStorage implements StorageAdapter {
     const runId = randomUUID();
     const createdAt = new Date();
 
-    await this.database.insert(taskRequests).values({
-      id: taskId,
-      title: task.title,
-      goal: task.goal,
-      taskType: task.taskType,
-      workflowTemplate: task.workflowTemplate,
-      targetRepo: task.targetRepo,
-      targetBranch: task.targetBranch,
-      constraints: task.constraints,
-      acceptanceCriteria: task.acceptanceCriteria,
-      attachments: task.attachments,
-      createdAt
-    });
+    await this.database.transaction(async (tx) => {
+      await tx.insert(taskRequests).values({
+        id: taskId,
+        title: task.title,
+        goal: task.goal,
+        taskType: task.taskType,
+        workflowTemplate: task.workflowTemplate,
+        workflowInput: task.workflowInput as Record<string, unknown>,
+        targetRepo: task.targetRepo,
+        targetBranch: task.targetBranch,
+        constraints: task.constraints,
+        acceptanceCriteria: task.acceptanceCriteria,
+        attachments: task.attachments,
+        createdAt
+      });
 
-    await this.database.insert(runs).values({
-      id: runId,
-      taskRequestId: taskId,
-      status: "queued",
-      title: task.title,
-      taskType: task.taskType,
-      workflowTemplate: task.workflowTemplate,
-      targetRepo: task.targetRepo,
-      targetBranch: task.targetBranch,
-      branchName: null,
-      failureReason: null,
-      finalSummary: null,
-      createdAt,
-      updatedAt: createdAt
+      await tx.insert(runs).values({
+        id: runId,
+        taskRequestId: taskId,
+        status: "queued",
+        title: task.title,
+        taskType: task.taskType,
+        workflowTemplate: task.workflowTemplate,
+        targetRepo: task.targetRepo,
+        targetBranch: task.targetBranch,
+        branchName: null,
+        failureReason: null,
+        finalSummary: null,
+        createdAt,
+        updatedAt: createdAt
+      });
+
+      await tx.insert(runEvents).values({
+        id: randomUUID(),
+        runId,
+        stepId: null,
+        role: null,
+        eventType: "run.queued",
+        status: "queued",
+        summary: "Run accepted and queued for worker execution.",
+        payload: null,
+        createdAt
+      });
     });
 
     const detail = await this.getRunDetail(runId);
@@ -418,6 +549,12 @@ class PostgresStorage implements StorageAdapter {
     return rows.map(hydrateRun);
   }
 
+  async listRunsByStatus(statuses: RunStatus[]) {
+    if (statuses.length === 0) return [];
+    const rows = await this.database.select().from(runs).where(inArray(runs.status, statuses)).orderBy(desc(runs.updatedAt));
+    return rows.map(hydrateRun);
+  }
+
   async listPendingApprovalRuns() {
     const rows = await this.database.select().from(runs).where(eq(runs.status, "pending_human")).orderBy(desc(runs.updatedAt));
     return rows.map(hydrateRun);
@@ -428,11 +565,12 @@ class PostgresStorage implements StorageAdapter {
     if (!runRow) return null;
     const taskRow = await this.database.query.taskRequests.findFirst({ where: eq(taskRequests.id, runRow.taskRequestId) });
     if (!taskRow) return null;
-    const [stepRows, artifactRows, approvalRows, toolRows] = await Promise.all([
-      this.database.select().from(runSteps).where(eq(runSteps.runId, runId)),
-      this.database.select().from(artifacts).where(eq(artifacts.runId, runId)),
-      this.database.select().from(approvals).where(eq(approvals.runId, runId)),
-      this.database.select().from(toolCalls).where(eq(toolCalls.runId, runId))
+    const [stepRows, artifactRows, approvalRows, eventRows, toolRows] = await Promise.all([
+      this.database.select().from(runSteps).where(eq(runSteps.runId, runId)).orderBy(asc(runSteps.startedAt), asc(runSteps.id)),
+      this.database.select().from(artifacts).where(eq(artifacts.runId, runId)).orderBy(asc(artifacts.createdAt), asc(artifacts.id)),
+      this.database.select().from(approvals).where(eq(approvals.runId, runId)).orderBy(asc(approvals.createdAt), asc(approvals.id)),
+      this.database.select().from(runEvents).where(eq(runEvents.runId, runId)).orderBy(asc(runEvents.createdAt), asc(runEvents.id)),
+      this.database.select().from(toolCalls).where(eq(toolCalls.runId, runId)).orderBy(asc(toolCalls.createdAt), asc(toolCalls.id))
     ]);
     return {
       run: hydrateRun(runRow),
@@ -440,6 +578,7 @@ class PostgresStorage implements StorageAdapter {
       steps: stepRows.map(hydrateStep),
       artifacts: artifactRows.map(hydrateArtifact),
       approvals: approvalRows.map(hydrateApproval),
+      events: eventRows.map(hydrateRunEvent),
       toolCalls: toolRows.map(hydrateToolCall)
     };
   }
@@ -450,6 +589,7 @@ class PostgresStorage implements StorageAdapter {
 
     await this.database.transaction(async (tx) => {
       await tx.delete(toolCalls).where(eq(toolCalls.runId, runId));
+      await tx.delete(runEvents).where(eq(runEvents.runId, runId));
       await tx.delete(approvals).where(eq(approvals.runId, runId));
       await tx.delete(artifacts).where(eq(artifacts.runId, runId));
       await tx.delete(runSteps).where(eq(runSteps.runId, runId));
@@ -473,7 +613,7 @@ class PostgresStorage implements StorageAdapter {
       .where(eq(runs.id, runId));
   }
 
-  async createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null }) {
+  async createRunStep(input: { runId: string; role: AgentRole; status: StepStatus; input?: string | null } & StepWriteFields) {
     const id = randomUUID();
     const startedAt = new Date();
     await this.database.insert(runSteps).values({
@@ -485,6 +625,12 @@ class PostgresStorage implements StorageAdapter {
       input: input.input ?? null,
       output: null,
       error: null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+      executionMode: input.executionMode ?? null,
+      inputTokens: input.inputTokens ?? null,
+      outputTokens: input.outputTokens ?? null,
+      costUsd: input.costUsd === null || input.costUsd === undefined ? null : input.costUsd.toFixed(6),
       startedAt,
       endedAt: null
     });
@@ -497,12 +643,18 @@ class PostgresStorage implements StorageAdapter {
       input: input.input ?? null,
       output: null,
       error: null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+      executionMode: input.executionMode ?? null,
+      inputTokens: input.inputTokens ?? null,
+      outputTokens: input.outputTokens ?? null,
+      costUsd: input.costUsd ?? null,
       startedAt: startedAt.toISOString(),
       endedAt: null
     };
   }
 
-  async updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt">>) {
+  async updateRunStep(stepId: string, patch: Partial<Pick<StepRecord, "status" | "summary" | "output" | "error" | "endedAt"> & StepWriteFields>) {
     await this.database
       .update(runSteps)
       .set({
@@ -510,9 +662,50 @@ class PostgresStorage implements StorageAdapter {
         summary: patch.summary,
         output: patch.output,
         error: patch.error,
+        provider: patch.provider ?? undefined,
+        model: patch.model ?? undefined,
+        executionMode: patch.executionMode ?? undefined,
+        inputTokens: patch.inputTokens ?? undefined,
+        outputTokens: patch.outputTokens ?? undefined,
+        costUsd: patch.costUsd === undefined ? undefined : patch.costUsd === null ? null : patch.costUsd.toFixed(6),
         endedAt: patch.endedAt ? new Date(patch.endedAt) : undefined
       })
       .where(eq(runSteps.id, stepId));
+  }
+
+  async addRunEvent(input: {
+    runId: string;
+    stepId?: string | null;
+    role?: AgentRole | null;
+    eventType: RunEventType;
+    status?: RunStatus | null;
+    summary: string;
+    payload?: string | null;
+  }) {
+    const id = randomUUID();
+    const createdAt = new Date();
+    await this.database.insert(runEvents).values({
+      id,
+      runId: input.runId,
+      stepId: input.stepId ?? null,
+      role: input.role ?? null,
+      eventType: input.eventType,
+      status: input.status ?? null,
+      summary: input.summary,
+      payload: input.payload ?? null,
+      createdAt
+    });
+    return {
+      id,
+      runId: input.runId,
+      stepId: input.stepId ?? null,
+      role: input.role ?? null,
+      eventType: input.eventType,
+      status: input.status ?? null,
+      summary: input.summary,
+      payload: input.payload ?? null,
+      createdAt: createdAt.toISOString()
+    };
   }
 
   async addArtifact(input: { runId: string; artifactType: ArtifactType; title: string; content: string }) {
@@ -600,7 +793,7 @@ class PostgresStorage implements StorageAdapter {
         .select()
         .from(approvals)
         .where(eq(approvals.runId, runId))
-        .orderBy(desc(approvals.createdAt))
+        .orderBy(desc(approvals.createdAt), desc(approvals.id))
     ).find((row) => row.action === null);
     const updatedAt = new Date();
     if (pending) {
@@ -711,24 +904,6 @@ class PostgresStorage implements StorageAdapter {
         }))
       );
       return defaultModelPolicies;
-    }
-
-    const routerDefault = defaultModelPolicies.find((policy) => policy.role === "router");
-    const legacyRouter = routerDefault
-      ? rows.find((row) => row.role === "router" && row.provider === "google" && row.model === "gemini-3.1-flash-lite-preview")
-      : undefined;
-
-    if (legacyRouter && routerDefault) {
-      await this.database
-        .update(modelPolicies)
-        .set({
-          provider: routerDefault.provider,
-          model: routerDefault.model,
-          reviewerProvider: routerDefault.reviewerProvider ?? null,
-          reviewerModel: routerDefault.reviewerModel ?? null
-        })
-        .where(eq(modelPolicies.role, "router"));
-      rows = await this.database.select().from(modelPolicies);
     }
 
     const existingRoles = new Set(rows.map((row) => row.role));

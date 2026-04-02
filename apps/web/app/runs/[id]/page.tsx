@@ -19,6 +19,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const messages = getMessages(locale);
   const allowFailedOnlyRetry = canRetryFailedOnly(detail);
   const workflow = getWorkflowPresentation(detail.run.workflowTemplate, locale);
+  const totalInputTokens = detail.steps.reduce((sum, step) => sum + (step.inputTokens ?? 0), 0);
+  const totalOutputTokens = detail.steps.reduce((sum, step) => sum + (step.outputTokens ?? 0), 0);
+  const totalCost = detail.steps.reduce((sum, step) => sum + (step.costUsd ?? 0), 0);
 
   return (
     <AppShell username={session.username} runtime={runtime}>
@@ -39,6 +42,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             </span>
             <span>{workflow.targetPrimaryLabel}: {detail.run.targetRepo}</span>
             <span>{workflow.targetSecondaryLabel}: {detail.run.targetBranch}</span>
+            <span>{messages.runDetail.totalInputTokens}: {totalInputTokens}</span>
+            <span>{messages.runDetail.totalOutputTokens}: {totalOutputTokens}</span>
+            <span>{messages.runDetail.totalCost}: ${totalCost.toFixed(4)}</span>
             {detail.run.branchName ? <span>{messages.runDetail.managedBranchLabel}: {detail.run.branchName}</span> : null}
           </div>
         </header>
@@ -60,6 +66,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                         <div className="space-y-1">
                           <div className="text-[0.72rem] uppercase tracking-[0.2em] text-slate-400">{getRoleLabel(step.role, messages)}</div>
                           <div className="text-sm text-white">{step.summary ?? messages.runDetail.completed}</div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                            <span>{step.provider ?? "rule"}/{step.model ?? "deterministic"}</span>
+                            <span>{messages.runDetail.executionMode}: {step.executionMode ?? "n/a"}</span>
+                            <span>{messages.runDetail.stepDuration}: {step.startedAt && step.endedAt ? `${Math.max(0, Math.round((new Date(step.endedAt).getTime() - new Date(step.startedAt).getTime()) / 1000))}s` : "n/a"}</span>
+                            <span>{messages.runDetail.totalInputTokens}: {step.inputTokens ?? 0}</span>
+                            <span>{messages.runDetail.totalOutputTokens}: {step.outputTokens ?? 0}</span>
+                            <span>{messages.runDetail.totalCost}: ${((step.costUsd ?? 0) as number).toFixed(4)}</span>
+                          </div>
                         </div>
                         <div className="text-xs text-slate-500">{step.endedAt ? formatRelativeTime(step.endedAt, locale) : messages.runDetail.inProgress}</div>
                       </div>
@@ -104,7 +118,40 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
               variant="detail"
             />
 
-            {detail.run.status === "pending_human" ? <ApprovalActions runId={detail.run.id} /> : null}
+            {detail.run.status === "pending_human" ? <ApprovalActions runId={detail.run.id} approveLabel={workflow.approvalActionLabel} /> : null}
+
+            <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
+              <div className="space-y-1">
+                <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.runDetail.eventLog}</div>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.eventTimeline}</h2>
+              </div>
+              <div className="mt-6 space-y-3">
+                {detail.events.length === 0 ? (
+                  <div className="rounded-[1.5rem] border border-dashed border-white/10 px-5 py-6 text-sm text-slate-400">{messages.runDetail.noEvents}</div>
+                ) : (
+                  detail.events.map((event) => (
+                    <div key={event.id} className="rounded-[1.5rem] border border-white/10 px-5 py-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="text-[0.68rem] uppercase tracking-[0.16em] text-slate-400">{event.eventType}</div>
+                          <div className="text-sm text-white">{event.summary}</div>
+                          <div className="text-xs text-slate-500">
+                            {event.role ? `${getRoleLabel(event.role, messages)} · ` : ""}
+                            {event.status ?? messages.common.none}
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-500">{formatRelativeTime(event.createdAt, locale)}</div>
+                      </div>
+                      {event.payload ? (
+                        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-[1.25rem] bg-slate-950/50 px-4 py-4 font-[var(--font-mono)] text-xs leading-6 text-slate-300">
+                          {event.payload}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="space-y-1">
@@ -141,6 +188,12 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                 <div>
                   <div className="text-slate-500">{workflow.targetSecondaryLabel}</div>
                   <div className="mt-2 rounded-[1.25rem] bg-slate-950/40 px-4 py-3 text-white">{detail.task.targetBranch}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">{messages.runDetail.workflowInput}</div>
+                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-[1.25rem] bg-slate-950/40 px-4 py-3 font-[var(--font-mono)] text-xs leading-6 text-white">
+                    {JSON.stringify(detail.task.workflowInput, null, 2)}
+                  </pre>
                 </div>
                 <div>
                   <div className="text-slate-500">{messages.runDetail.constraints}</div>

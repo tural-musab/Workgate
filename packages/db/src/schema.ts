@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, jsonb, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const taskRequests = pgTable("task_requests", {
   id: text("id").primaryKey(),
@@ -6,6 +6,7 @@ export const taskRequests = pgTable("task_requests", {
   goal: text("goal").notNull(),
   taskType: text("task_type").notNull(),
   workflowTemplate: text("workflow_template").default("software_delivery").notNull(),
+  workflowInput: jsonb("workflow_input").$type<Record<string, unknown>>().notNull(),
   targetRepo: text("target_repo").notNull(),
   targetBranch: text("target_branch").notNull(),
   constraints: jsonb("constraints").$type<string[]>().notNull(),
@@ -39,8 +40,26 @@ export const runSteps = pgTable("run_steps", {
   input: text("input"),
   output: text("output"),
   error: text("error"),
+  provider: text("provider"),
+  model: text("model"),
+  executionMode: text("execution_mode"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
   startedAt: timestamp("started_at", { withTimezone: true }),
   endedAt: timestamp("ended_at", { withTimezone: true })
+});
+
+export const runEvents = pgTable("run_events", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  stepId: text("step_id"),
+  role: text("role"),
+  eventType: text("event_type").notNull(),
+  status: text("status"),
+  summary: text("summary").notNull(),
+  payload: text("payload"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull()
 });
 
 export const artifacts = pgTable("artifacts", {

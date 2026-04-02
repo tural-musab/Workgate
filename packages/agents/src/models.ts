@@ -3,7 +3,16 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 
-import { TaskRouteSchema, type AgentDeliverable, type AgentRole, type ModelPolicy, type ModelProvider, type TaskRequest, type TaskRoute } from "@workgate/shared";
+import {
+  EngineerPlanSchema,
+  TaskRouteSchema,
+  type AgentDeliverable,
+  type AgentRole,
+  type ModelPolicy,
+  type ModelProvider,
+  type TaskRequest,
+  type TaskRoute
+} from "@workgate/shared";
 
 import { buildRoleSystemPrompt, buildRoleUserPrompt } from "./prompts";
 
@@ -19,11 +28,38 @@ export interface ResolvedTaskRoute extends TaskRoute {
   source: "rule" | "model" | "fallback";
   provider?: ModelProvider;
   model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  executionMode?: AgentDeliverable["executionMode"];
 }
 
 function parseSection(tag: string, content: string) {
   const match = content.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
   return match?.[1]?.trim() ?? "";
+}
+
+function parseListSection(tag: string, content: string) {
+  return parseSection(tag, content)
+    .split("\n")
+    .map((line) => line.replace(/^- /, "").trim())
+    .filter(Boolean);
+}
+
+function parseJsonSection(tag: string, content: string) {
+  const value = parseSection(tag, content);
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    const fenced = value.match(/```json\s*([\s\S]*?)```/i)?.[1];
+    if (!fenced) return undefined;
+    try {
+      return JSON.parse(fenced);
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 function parseDeliverable(raw: string): AgentDeliverable {
@@ -35,8 +71,33 @@ function parseDeliverable(raw: string): AgentDeliverable {
     .map((line) => line.replace(/^- /, "").trim())
     .filter((line) => line.length > 0 && line.toLowerCase() !== "none");
   const needsHuman = parseSection("needs_human", raw).toLowerCase() === "true";
+  const engineerPlanCandidate = {
+    summary: parseSection("engineer_summary", raw) || summary,
+    changePlan: parseListSection("change_plan", raw),
+    fileOperations: parseJsonSection("file_operations", raw),
+    testPlan: parseListSection("test_plan", raw),
+    rollbackPlan: parseListSection("rollback_plan", raw)
+  };
+  const hasEngineerSections =
+    engineerPlanCandidate.changePlan.length > 0 ||
+    Array.isArray(engineerPlanCandidate.fileOperations) ||
+    engineerPlanCandidate.testPlan.length > 0 ||
+    engineerPlanCandidate.rollbackPlan.length > 0;
 
-  return { summary, deliverable, risks, needsHuman };
+  return {
+    summary,
+    deliverable,
+    risks,
+    needsHuman,
+    ...(hasEngineerSections
+      ? {
+          engineerPlan: EngineerPlanSchema.parse({
+            ...engineerPlanCandidate,
+            fileOperations: Array.isArray(engineerPlanCandidate.fileOperations) ? engineerPlanCandidate.fileOperations : []
+          })
+        }
+      : {})
+  };
 }
 
 function buildMockDeliverable({ role, task, context }: AgentRuntimeContext): AgentDeliverable {
@@ -48,7 +109,7 @@ function buildMockDeliverable({ role, task, context }: AgentRuntimeContext): Age
         research: "Repository and product context summarized for the operator.",
         pm: "Scoped delivery brief prepared with explicit boundaries.",
         architect: "Architecture memo focused on safe, reviewable implementation.",
-        engineer: "Patch summary drafted with a safe `.workgate` repository artefact path.",
+        engineer: "Structured change plan drafted with a managed repository diff preview path.",
         reviewer: "Independent review flagged remaining risks and missing validations.",
         docs: "Run closure documents prepared for operator review."
       }
@@ -80,6 +141,36 @@ function buildMockDeliverable({ role, task, context }: AgentRuntimeContext): Age
     role === "reviewer" ? "Pause for operator approval before any external release action." : "Continue to the next workflow stage."
   ].join("\n");
 
+  const engineerPlan =
+    software && role === "engineer"
+      ? {
+          summary: roleHeadlines[role],
+          changePlan: [
+            "Prepare a safe repository-owned file change for operator preview.",
+            "Generate a diff preview in a managed workspace before approval.",
+            "Hold GitHub push until the operator approves the prepared branch."
+          ],
+          fileOperations: [
+            {
+              type: "write" as const,
+              path: "docs/workgate-managed-change.md",
+              content: [
+                "# Workgate managed change preview",
+                "",
+                `- Task: ${task.title}`,
+                `- Repository: ${task.targetRepo}`,
+                `- Branch: ${task.targetBranch}`,
+                "",
+                "This file was prepared inside a managed workspace so the operator can inspect a real diff preview before approval."
+              ].join("\n"),
+              rationale: "Create a safe file-level repository diff for the approval gate."
+            }
+          ],
+          testPlan: ["Inspect the diff preview for correctness.", "Confirm approval still gates any external repository write."],
+          rollbackPlan: ["Discard the managed branch if the operator rejects the run.", "Delete the generated file in a follow-up cleanup change if it is no longer needed."]
+        }
+      : undefined;
+
   return {
     summary: roleHeadlines[role],
     deliverable: body,
@@ -87,7 +178,8 @@ function buildMockDeliverable({ role, task, context }: AgentRuntimeContext): Age
     needsHuman: role === "reviewer" || role === "docs",
     provider: "mock",
     model: `mock-${role}`,
-    executionMode: "mock"
+    executionMode: "mock",
+    ...(engineerPlan ? { engineerPlan } : {})
   };
 }
 
@@ -119,6 +211,29 @@ function parseFirstJsonObject(raw: string) {
   const fenced = raw.match(/```json\s*([\s\S]*?)```/i)?.[1];
   const candidate = fenced ?? raw.match(/\{[\s\S]*\}/)?.[0] ?? raw;
   return JSON.parse(candidate);
+}
+
+function extractUsageMetadata(response: { usage_metadata?: unknown } | { usageMetadata?: unknown }) {
+  const maybeSnake = (response as { usage_metadata?: unknown }).usage_metadata;
+  const maybeCamel = (response as { usageMetadata?: unknown }).usageMetadata;
+  const usage = (maybeSnake ?? maybeCamel) as
+    | {
+        input_tokens?: number;
+        output_tokens?: number;
+        inputTokens?: number;
+        outputTokens?: number;
+      }
+    | undefined;
+
+  if (!usage) {
+    return { inputTokens: undefined, outputTokens: undefined, costUsd: undefined };
+  }
+
+  return {
+    inputTokens: usage.input_tokens ?? usage.inputTokens,
+    outputTokens: usage.output_tokens ?? usage.outputTokens,
+    costUsd: undefined
+  };
 }
 
 function chooseProvider(policy: ModelPolicy) {
@@ -160,12 +275,16 @@ export async function invokeRoleDeliverable(input: AgentRuntimeContext): Promise
     new SystemMessage(buildRoleSystemPrompt(input.role, input.task.workflowTemplate)),
     new HumanMessage(buildRoleUserPrompt(input.role, input.task, input.context))
   ]);
+  const usage = extractUsageMetadata(response as { usage_metadata?: unknown });
 
   return {
     ...parseDeliverable(extractMessageText(response.content)),
     provider: input.policy.provider,
     model: input.policy.model,
-    executionMode: "live"
+    executionMode: "live",
+    ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+    ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+    ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {})
   };
 }
 
@@ -263,7 +382,8 @@ export function routeTaskDeterministic(task: TaskRequest): ResolvedTaskRoute {
       risk: "high",
       reason: "Detected high-risk terms that require explicit human supervision.",
       needsHuman: true,
-      source: "rule"
+      source: "rule",
+      executionMode: "rule"
     };
   }
 
@@ -273,7 +393,8 @@ export function routeTaskDeterministic(task: TaskRequest): ResolvedTaskRoute {
       risk: signals.ambiguous ? "medium" : "low",
       reason: "Task type research is treated as analysis-first work unless explicit human gating is required.",
       needsHuman: signals.ambiguous,
-      source: "rule"
+      source: "rule",
+      executionMode: "rule"
     };
   }
 
@@ -283,7 +404,8 @@ export function routeTaskDeterministic(task: TaskRequest): ResolvedTaskRoute {
       risk: "low",
       reason: `Task type ${task.taskType} maps cleanly to analysis-oriented workflow work.`,
       needsHuman: false,
-      source: "rule"
+      source: "rule",
+      executionMode: "rule"
     };
   }
 
@@ -293,7 +415,8 @@ export function routeTaskDeterministic(task: TaskRequest): ResolvedTaskRoute {
       risk: "medium",
       reason: `Task type ${task.taskType} points to planning or architecture-first work.`,
       needsHuman: false,
-      source: "rule"
+      source: "rule",
+      executionMode: "rule"
     };
   }
 
@@ -304,7 +427,8 @@ export function routeTaskDeterministic(task: TaskRequest): ResolvedTaskRoute {
       ? "Task contains mixed planning and implementation signals, so it defaults to execution with review."
       : `Task type ${task.taskType} maps to execution-oriented engineering work.`,
     needsHuman: signals.ambiguous,
-    source: "rule"
+    source: "rule",
+    executionMode: "rule"
   };
 }
 
@@ -322,7 +446,8 @@ export async function routeTask(task: TaskRequest, policy?: ModelPolicy, options
     return {
       ...deterministic,
       source: "fallback",
-      reason: `${deterministic.reason} Deterministic fallback used because the configured router model is unavailable.`
+      reason: `${deterministic.reason} Deterministic fallback used because the configured router model is unavailable.`,
+      executionMode: "mock"
     };
   }
 
@@ -331,19 +456,24 @@ export async function routeTask(task: TaskRequest, policy?: ModelPolicy, options
       new SystemMessage(buildRouterSystemPrompt()),
       new HumanMessage(buildRouterUserPrompt(task, deterministic, shouldEscalate))
     ]);
-
+    const usage = extractUsageMetadata(response as { usage_metadata?: unknown });
     const validated = TaskRouteSchema.parse(parseFirstJsonObject(extractMessageText(response.content)));
     return {
       ...validated,
       source: "model",
       provider: policy.provider,
-      model: policy.model
+      model: policy.model,
+      executionMode: "live",
+      ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+      ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+      ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {})
     };
   } catch {
     return {
       ...deterministic,
       source: "fallback",
-      reason: `${deterministic.reason} Deterministic fallback used because router escalation did not return valid output.`
+      reason: `${deterministic.reason} Deterministic fallback used because router escalation did not return valid output.`,
+      executionMode: "mock"
     };
   }
 }

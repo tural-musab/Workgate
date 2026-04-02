@@ -1,0 +1,15 @@
+{
+  "name": "@workgate/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@workgate/agents": "workspace:*",
+    "@workgate/db": "workspace:*",
+    "@workgate/github": "workspace:*",
+    "@workgate/shared": "workspace:*"
+  }
+}

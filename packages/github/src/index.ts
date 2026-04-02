@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { Octokit } from "octokit";
 import slugify from "slugify";
 
-import type { ArtifactRecord, GitHubRepoConnection } from "@workgate/shared";
+import type { ArtifactRecord, EngineerFileOperation, GitHubRepoConnection } from "@workgate/shared";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +19,11 @@ export interface DraftPullRequestResult {
 export interface ManagedWorkspace {
   workspacePath: string;
   branchName: string;
+}
+
+export interface WorkspaceDiffResult {
+  diff: string;
+  changedFiles: string[];
 }
 
 type RepositoryTreeEntry = {
@@ -52,6 +57,11 @@ function repositoryIsAllowed(targetRepo: string, allowlist: GitHubRepoConnection
 
 async function runGit(args: string[], cwd?: string) {
   await execFileAsync("git", args, cwd ? { cwd } : undefined);
+}
+
+async function runGitWithOutput(args: string[], cwd: string) {
+  const result = await execFileAsync("git", args, { cwd });
+  return result.stdout.trim();
 }
 
 function truncateText(value: string, limit: number) {
@@ -90,6 +100,15 @@ function codeFenceLanguage(filePath: string) {
     default:
       return "";
   }
+}
+
+function resolveWorkspacePath(workspacePath: string, relativePath: string) {
+  const resolved = path.resolve(workspacePath, relativePath);
+  const normalizedWorkspace = workspacePath.endsWith(path.sep) ? workspacePath : `${workspacePath}${path.sep}`;
+  if (resolved !== workspacePath && !resolved.startsWith(normalizedWorkspace)) {
+    throw new Error(`File operation path escapes the managed workspace: ${relativePath}`);
+  }
+  return resolved;
 }
 
 function buildTopLevelEntries(tree: RepositoryTreeEntry[]) {
@@ -383,7 +402,7 @@ export class GitHubExecutionService {
     title: string;
     targetRepo: string;
     targetBranch: string;
-    token: string;
+    token?: string | null;
     allowlist: GitHubRepoConnection[];
   }): Promise<ManagedWorkspace> {
     if (!repositoryIsAllowed(input.targetRepo, input.allowlist)) {
@@ -393,7 +412,7 @@ export class GitHubExecutionService {
     const { owner, repo } = parseRepoSlug(input.targetRepo);
     const workspacePath = await mkdtemp(path.join(tmpdir(), "workgate-"));
     const branchName = buildManagedBranchName(input.runId, input.title);
-    const remoteUrl = `https://x-access-token:${input.token}@github.com/${owner}/${repo}.git`;
+    const remoteUrl = input.token ? `https://x-access-token:${input.token}@github.com/${owner}/${repo}.git` : `https://github.com/${owner}/${repo}.git`;
 
     await runGit(["clone", "--depth", "1", "--branch", input.targetBranch, remoteUrl, workspacePath]);
     await runGit(["checkout", "-b", branchName], workspacePath);
@@ -416,6 +435,36 @@ export class GitHubExecutionService {
     await Promise.all(writes);
   }
 
+  async applyFileOperations(input: { workspacePath: string; operations: EngineerFileOperation[] }) {
+    for (const operation of input.operations) {
+      const resolvedPath = resolveWorkspacePath(input.workspacePath, operation.path);
+      if (operation.type === "delete") {
+        await rm(resolvedPath, { force: true });
+        continue;
+      }
+
+      await mkdir(path.dirname(resolvedPath), { recursive: true });
+      if (operation.type === "append") {
+        await appendFile(resolvedPath, operation.content ?? "", "utf8");
+        continue;
+      }
+
+      await writeFile(resolvedPath, operation.content ?? "", "utf8");
+    }
+  }
+
+  async readWorkspaceDiff(input: { workspacePath: string }): Promise<WorkspaceDiffResult> {
+    const [diff, changedFilesOutput] = await Promise.all([
+      runGitWithOutput(["diff", "--no-ext-diff", "--"], input.workspacePath),
+      runGitWithOutput(["diff", "--name-only", "--"], input.workspacePath)
+    ]);
+
+    return {
+      diff,
+      changedFiles: changedFilesOutput ? changedFilesOutput.split("\n").map((item) => item.trim()).filter(Boolean) : []
+    };
+  }
+
   async commitAndPushWorkspace(input: {
     workspacePath: string;
     branchName: string;
@@ -424,7 +473,7 @@ export class GitHubExecutionService {
   }) {
     await runGit(["config", "user.name", "Workgate"], input.workspacePath);
     await runGit(["config", "user.email", "bot@workgate.local"], input.workspacePath);
-    await runGit(["add", ".workgate"], input.workspacePath);
+    await runGit(["add", "--all"], input.workspacePath);
     await runGit(["commit", "-m", `chore: Workgate run ${input.runId}`], input.workspacePath);
     await runGit(["push", "--set-upstream", "origin", input.branchName], input.workspacePath);
   }

@@ -34,8 +34,10 @@ export function buildRoleSystemPrompt(role: AgentRole, template: WorkflowTemplat
     research: "You are a software-context research analyst. Gather context from the task input and produce evidence-minded notes without inventing unsupported facts.",
     pm: "You are an AI product manager. Produce a scoped delivery brief, clarify out-of-scope boundaries, and tighten acceptance criteria.",
     architect: "You are a software architect. Produce a practical architecture memo with trade-offs, risks, and implementation edges.",
-    engineer: "You are a software engineer. Produce the minimum safe change plan, a patch summary, and the validation approach.",
-    reviewer: "You are a skeptical software reviewer. Focus on flaws, regressions, missing tests, and weak assumptions.",
+    engineer:
+      "You are a software engineer. Produce a structured change plan with concrete file operations, a validation plan, and a rollback plan. Keep the change set intentionally small and safe.",
+    reviewer:
+      "You are a skeptical software reviewer. Focus on flaws, regressions, missing tests, weak assumptions, and the safety of the proposed file operations or diff summary.",
     docs: "You are a technical documentation agent. Produce clear, operational engineering documents with no marketing language."
   };
 
@@ -51,14 +53,42 @@ export function buildRoleSystemPrompt(role: AgentRole, template: WorkflowTemplat
   };
 
   const prompts = template === "rfp_response" ? rfpPrompts : softwarePrompts;
-
-  return `${prompts[role]}\n\nRespond using this exact structure:
+  const sharedStructure = `Respond using this exact structure:
 <summary>One short paragraph.</summary>
 <deliverable>Markdown body.</deliverable>
 <risks>
 - risk or 'None'
 </risks>
 <needs_human>true|false</needs_human>`;
+
+  const engineerStructure =
+    role === "engineer" && template === "software_delivery"
+      ? `
+
+Also include these extra sections for the software engineer role:
+<engineer_summary>One short paragraph.</engineer_summary>
+<change_plan>
+- one step per line
+</change_plan>
+<file_operations>
+[
+  {
+    "type": "write|append|delete",
+    "path": "relative/path.ext",
+    "content": "full file contents when required",
+    "rationale": "short explanation"
+  }
+]
+</file_operations>
+<test_plan>
+- one validation step per line
+</test_plan>
+<rollback_plan>
+- one rollback step per line
+</rollback_plan>`
+      : "";
+
+  return `${prompts[role]}\n\n${sharedStructure}${engineerStructure}`;
 }
 
 export function buildRoleUserPrompt(role: AgentRole, task: TaskRequest, context: string) {

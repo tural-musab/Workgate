@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { requirePageSession } from "@/lib/auth";
 import { getRuntimeInfo, listPendingApprovalRuns } from "@/lib/app-service";
-import { getMessages } from "@/lib/i18n";
+import { getMessages, getRoleLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
 import { getWorkflowPresentation } from "@/lib/workflows";
 
@@ -39,6 +39,13 @@ export default async function ApprovalsPage() {
                         <span className={`rounded-full border px-3 py-1 text-[0.68rem] uppercase tracking-[0.14em] ${workflow.accentBorder} ${workflow.accentText}`}>
                           {workflow.name}
                         </span>
+                      </div>
+                      <p className="text-sm leading-6 text-slate-300">{run.approvalReadyReason}</p>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>
+                          {messages.runDetail.lastCompleted}: {run.lastCompletedRole ? getRoleLabel(run.lastCompletedRole, messages) : messages.common.none}
+                        </span>
+                        <span>{run.quickRiskSummary}</span>
                       </div>
                     </div>
                     <div className="text-sm text-cyan-200">{messages.common.openRunDetail}</div>
