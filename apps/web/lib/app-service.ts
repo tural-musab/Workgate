@@ -10,6 +10,7 @@ import {
 import { GitHubExecutionService, buildManagedBranchName } from "@workgate/github";
 import {
   buildApprovalQueueItem,
+  buildReleasePacketView,
   buildRetrySeed,
   buildRetryTask,
   canRetryFailedOnly as runtimeCanRetryFailedOnly,
@@ -50,6 +51,7 @@ import {
   type GitHubAppSettings,
   type GitHubAppSettingsView,
   type GitHubRepoConnection,
+  type ReleasePacketView,
   type RunDetail,
   type Session
 } from "@workgate/shared";
@@ -273,6 +275,22 @@ export async function createTask(input: unknown, session?: Session) {
     createdBy: effectiveSession.email ?? effectiveSession.userId
   });
 
+  if (task.workflowTemplate === "rfp_response") {
+    const knowledgeSourceId =
+      "knowledgeSourceId" in task.workflowInput && typeof task.workflowInput.knowledgeSourceId === "string" ? task.workflowInput.knowledgeSourceId : null;
+    if (!knowledgeSourceId) {
+      throw new Error("RFP Response Team requires a ready knowledge pack selection.");
+    }
+    const knowledgeSources = await runtime.storage.listKnowledgeSources(effectiveSession.workspace.id, task.teamId);
+    const selectedSource = knowledgeSources.find((source) => source.id === knowledgeSourceId);
+    if (!selectedSource) {
+      throw new Error("Selected knowledge pack could not be found for the active team.");
+    }
+    if (selectedSource.ingestionStatus !== "ready") {
+      throw new Error("Selected knowledge pack is not ready for use yet.");
+    }
+  }
+
   if (isGitHubWorkflowTemplate(task.workflowTemplate)) {
     if (!isValidGitHubRepoSlug(task.targetRepo)) {
       throw new Error("Software Delivery Team requires a valid GitHub repository slug.");
@@ -318,6 +336,12 @@ export async function getRunDetail(runId: string, session?: Session) {
   const runtime = getRuntime();
   const effectiveSession = await getEffectiveSession(session);
   return getAuthorizedRunDetail(runtime, effectiveSession, runId);
+}
+
+export async function getReleasePacket(runId: string, session?: Session): Promise<ReleasePacketView | null> {
+  const detail = await getRunDetail(runId, session);
+  if (!detail) return null;
+  return buildReleasePacketView(detail);
 }
 
 export async function getDashboardData(session?: Session, includeAllTeams = false) {
@@ -509,6 +533,9 @@ export async function saveKnowledgeSource(input: unknown, session?: Session) {
   assertTeamAccess(effectiveSession, payload.teamId);
   if (!canCreateTasks(getTeamRole(effectiveSession, payload.teamId), effectiveSession.workspaceRole)) {
     throw new Error("You do not have permission to manage knowledge packs for this team.");
+  }
+  if (payload.ingestionStatus === "ready" && !payload.content) {
+    throw new Error("Ready knowledge packs must include extracted content.");
   }
   return getRuntime().storage.saveKnowledgeSource(effectiveSession.workspace.id, effectiveSession.email ?? effectiveSession.userId, payload);
 }

@@ -62,7 +62,11 @@ export const knowledgeSources = pgTable("knowledge_sources", {
   sourceType: text("source_type").notNull(),
   description: text("description"),
   storagePath: text("storage_path"),
+  originalFilename: text("original_filename"),
+  mimeType: text("mime_type"),
   content: text("content"),
+  ingestionStatus: text("ingestion_status").notNull().default("ready"),
+  ingestionNotes: text("ingestion_notes"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull()
 });

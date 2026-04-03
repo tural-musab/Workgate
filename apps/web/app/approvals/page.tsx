@@ -42,6 +42,13 @@ export default async function ApprovalsPage() {
                         </span>
                       </div>
                       <p className="text-sm leading-6 text-slate-300">{run.approvalReadyReason}</p>
+                      {run.sourceSummary ? (
+                        <div className="rounded-[1rem] bg-black/20 px-4 py-3 text-sm text-slate-300">
+                          <span className="text-slate-500">{workflow.targetSecondaryLabel}: </span>
+                          {run.sourceSummary}
+                        </div>
+                      ) : null}
+                      {run.packetSummary ? <p className="text-sm leading-6 text-amber-100/85">{run.packetSummary}</p> : null}
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                         <span>
                           {messages.runDetail.lastCompleted}: {run.lastCompletedRole ? getRoleLabel(run.lastCompletedRole, messages) : messages.common.none}

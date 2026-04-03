@@ -41,6 +41,8 @@ export const teamRoles = ["team_operator", "team_reviewer", "team_viewer"] as co
 export const approvalPolicyScopeTypes = ["workspace_default", "team_override"] as const;
 export const authModes = ["seed_admin", "supabase"] as const;
 export const executionBackends = ["local", "remote_sandbox"] as const;
+export const knowledgeSourceTypes = ["markdown", "text", "json", "pdf", "docx", "pptx", "xlsx"] as const;
+export const knowledgeIngestionStatuses = ["ready", "processing", "failed"] as const;
 
 export type AgentRole = (typeof agentRoles)[number];
 export type RunStatus = (typeof runStatuses)[number];
@@ -59,6 +61,8 @@ export type TeamRole = (typeof teamRoles)[number];
 export type ApprovalPolicyScopeType = (typeof approvalPolicyScopeTypes)[number];
 export type AuthMode = (typeof authModes)[number];
 export type ExecutionBackend = (typeof executionBackends)[number];
+export type KnowledgeSourceType = (typeof knowledgeSourceTypes)[number];
+export type KnowledgeIngestionStatus = (typeof knowledgeIngestionStatuses)[number];
 
 export const AttachmentSchema = z.object({
   name: z.string().min(1),
@@ -257,6 +261,8 @@ export const ApprovalQueueItemSchema = RunRecordSchema.extend({
   lastCompletedRole: z.enum(agentRoles).nullable(),
   approvalReadyReason: z.string(),
   quickRiskSummary: z.string(),
+  packetSummary: z.string().nullable(),
+  sourceSummary: z.string().nullable(),
   latestEventAt: z.string().nullable()
 });
 
@@ -448,10 +454,14 @@ export const KnowledgeSourceSchema = z.object({
   workspaceId: z.string(),
   teamId: z.string(),
   name: z.string(),
-  sourceType: z.enum(["markdown", "text", "json"]),
+  sourceType: z.enum(knowledgeSourceTypes),
   description: z.string().nullable(),
   storagePath: z.string().nullable(),
+  originalFilename: z.string().nullable(),
+  mimeType: z.string().nullable(),
   content: z.string().nullable(),
+  ingestionStatus: z.enum(knowledgeIngestionStatuses),
+  ingestionNotes: z.string().nullable(),
   createdBy: z.string(),
   createdAt: z.string()
 });
@@ -459,9 +469,39 @@ export const KnowledgeSourceSchema = z.object({
 export const KnowledgeSourceInputSchema = z.object({
   teamId: z.string().min(1),
   name: z.string().min(2).max(160),
-  sourceType: z.enum(["markdown", "text", "json"]).default("markdown"),
+  sourceType: z.enum(knowledgeSourceTypes).default("markdown"),
   description: z.string().max(280).nullable().default(null),
-  content: z.string().min(1)
+  content: z.string().min(1).nullable().default(null),
+  storagePath: z.string().nullable().default(null),
+  originalFilename: z.string().max(260).nullable().default(null),
+  mimeType: z.string().max(255).nullable().default(null),
+  ingestionStatus: z.enum(knowledgeIngestionStatuses).default("ready"),
+  ingestionNotes: z.string().max(1000).nullable().default(null)
+});
+
+export const ReleasePacketSectionSchema = z.object({
+  artifactType: z.enum(artifactTypes),
+  title: z.string(),
+  body: z.string()
+});
+
+export const ReleasePacketChecklistItemSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  completed: z.boolean()
+});
+
+export const ReleasePacketViewSchema = z.object({
+  runId: z.string(),
+  title: z.string(),
+  workflowTemplate: z.literal("rfp_response"),
+  accountName: z.string(),
+  knowledgeSourceSummary: z.string(),
+  finalSummary: z.string().nullable(),
+  packetSummary: z.string(),
+  exportFilename: z.string(),
+  checklistItems: z.array(ReleasePacketChecklistItemSchema),
+  sections: z.array(ReleasePacketSectionSchema)
 });
 
 export const RetryRunPayloadSchema = z.object({
@@ -524,6 +564,9 @@ export type UsageTeamBreakdown = z.infer<typeof UsageTeamBreakdownSchema>;
 export type UsageSummary = z.infer<typeof UsageSummarySchema>;
 export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
 export type KnowledgeSourceInput = z.infer<typeof KnowledgeSourceInputSchema>;
+export type ReleasePacketSection = z.infer<typeof ReleasePacketSectionSchema>;
+export type ReleasePacketChecklistItem = z.infer<typeof ReleasePacketChecklistItemSchema>;
+export type ReleasePacketView = z.infer<typeof ReleasePacketViewSchema>;
 export type RetryRunPayload = z.infer<typeof RetryRunPayloadSchema>;
 export type ModelPolicy = z.infer<typeof ModelPolicySchema>;
 export type DashboardSummary = z.infer<typeof DashboardSummarySchema>;

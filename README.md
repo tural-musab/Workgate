@@ -29,6 +29,12 @@ Workgate is a local-first, cloud-ready control plane for prebuilt AI teams. The 
 5. Run `pnpm db:push` when `DATABASE_URL` points at PostgreSQL.
 6. Run `pnpm dev`.
 
+For file-backed RFP knowledge packs, also configure:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `WORKGATE_SUPABASE_STORAGE_BUCKET`
+
 If PostgreSQL is not available, the app falls back to an in-memory store and inline queue so the product can still be explored locally. Persistent runs and `pg-boss` require a running PostgreSQL database.
 
 ## Supabase remote PostgreSQL
@@ -50,6 +56,8 @@ Until `DATABASE_URL` is real, the default `.env` keeps the queue in `inline` mod
 - Active templates: `Software Delivery Team`, `RFP Response Team`
 - Coming-soon templates surfaced in UI: `Social Media Ops`, `Security Questionnaire Team`
 - Review artefacts, retry/cancel/delete controls, and approval queue
-- GitHub PAT settings and repo allowlist for the `Software Delivery Team`
+- Team-scoped GitHub App settings and repo allowlist for the `Software Delivery Team`
 - Draft pull request creation after human approval for software runs
 - Approval-only completion flow for non-GitHub workflows such as RFP response work
+- Reusable RFP knowledge packs with document upload and extraction
+- Print-ready proposal packet preview and export for the RFP workflow

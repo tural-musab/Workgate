@@ -19,6 +19,7 @@ Workgate v1 is implemented as a pnpm workspace with a Next.js App Router web app
 ## Consequences
 
 - V1 is safe by default but not yet sandbox-grade for untrusted repositories.
-- Browser automation, RBAC, and GitHub App auth are deferred to later phases.
+- Browser automation and remote sandbox execution are deferred to later phases.
 - Queue and storage abstractions must support both inline and PostgreSQL-backed modes.
 - GitHub remains connector-specific rather than platform-wide.
+- Team-scoped RBAC, GitHub App auth, and reusable proposal knowledge packs are part of the implemented v1 surface.

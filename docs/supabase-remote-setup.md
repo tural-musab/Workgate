@@ -24,7 +24,8 @@ In `.env`:
 2. Run `pnpm db:push`.
 3. Run `pnpm dev`.
 4. Sign in with the seeded operator credentials from `.env`.
-5. Go to Settings and enter the GitHub PAT plus allowlisted repos.
+5. Configure `SUPABASE_SERVICE_ROLE_KEY` and `WORKGATE_SUPABASE_STORAGE_BUCKET` if you want file-backed knowledge pack uploads.
+6. Go to Settings and enter the GitHub App values plus allowlisted repos for the Software Delivery Team.
 
 ## Current local-safe default
 

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
 import { getAppEnv } from "./env";
 
@@ -30,6 +31,25 @@ export async function createSupabaseServerClient() {
           }
         }
       }
+    }
+  });
+}
+
+export function isSupabaseStorageConfigured() {
+  const env = getAppEnv();
+  return Boolean(env.supabaseUrl && env.supabaseServiceRoleKey && env.supabaseStorageBucket);
+}
+
+export function createSupabaseAdminClient() {
+  const env = getAppEnv();
+  if (!env.supabaseUrl || !env.supabaseServiceRoleKey) {
+    throw new Error("Supabase storage is not configured.");
+  }
+
+  return createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
     }
   });
 }

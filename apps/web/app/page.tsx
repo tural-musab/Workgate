@@ -7,7 +7,7 @@ import { RunActions } from "@/components/run-actions";
 import { StatusBadge } from "@/components/status-badge";
 import { TaskComposer } from "@/components/task-composer";
 import { requirePageSession } from "@/lib/auth";
-import { getDashboardData } from "@/lib/app-service";
+import { getDashboardData, listKnowledgeSourcesView } from "@/lib/app-service";
 import { formatRelativeTime } from "@/lib/format";
 import { getMessages, getTaskTypeLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
@@ -16,7 +16,8 @@ import { canCancelRun, canDeleteRun, canRetryRun } from "@workgate/shared";
 
 export default async function DashboardPage() {
   const [session, locale] = await Promise.all([requirePageSession(), getServerLocale()]);
-  const data = await getDashboardData(session);
+  const activeTeamId = session.activeTeamId ?? session.activeTeam?.id ?? session.teams[0]?.id ?? "team_default";
+  const [data, knowledgeSources] = await Promise.all([getDashboardData(session), listKnowledgeSourcesView(session, activeTeamId)]);
   const messages = getMessages(locale);
 
   return (
@@ -48,7 +49,7 @@ export default async function DashboardPage() {
 
         <div className="operator-grid">
           <div className="space-y-6">
-            <TaskComposer activeTeamId={session.activeTeamId ?? session.activeTeam?.id ?? session.teams[0]?.id ?? "team_default"} />
+            <TaskComposer activeTeamId={activeTeamId} knowledgeSources={knowledgeSources} />
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
               <div className="flex items-center justify-between gap-4">
@@ -69,7 +70,12 @@ export default async function DashboardPage() {
                   data.runs.map((run) => {
                     const workflow = getWorkflowPresentation(run.workflowTemplate, locale);
                     return (
-                      <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-5 transition hover:bg-white/[0.035]">
+                      <div
+                        key={run.id}
+                        className={`rounded-[1.5rem] border px-5 py-5 transition hover:bg-white/[0.035] ${
+                          run.workflowTemplate === "rfp_response" ? "border-amber-300/20 bg-amber-400/[0.04]" : "border-white/10"
+                        }`}
+                      >
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                           <div className="min-w-0 space-y-2">
                             <div className="flex flex-wrap items-center gap-3">
@@ -85,6 +91,9 @@ export default async function DashboardPage() {
                             <div className="text-sm leading-6 text-slate-400">
                               {workflow.targetPrimaryLabel}: {run.targetRepo} · {workflow.targetSecondaryLabel}: {run.targetBranch}
                             </div>
+                            {run.workflowTemplate === "rfp_response" && run.finalSummary ? (
+                              <p className="max-w-3xl text-sm leading-6 text-amber-100/80">{run.finalSummary}</p>
+                            ) : null}
                           </div>
                           <div className="flex flex-col items-start gap-3 lg:items-end">
                             <div className="flex items-center gap-8 text-sm text-slate-300">
@@ -142,7 +151,12 @@ export default async function DashboardPage() {
                   data.approvals.map((run) => {
                     const workflow = getWorkflowPresentation(run.workflowTemplate, locale);
                     return (
-                      <div key={run.id} className="rounded-[1.5rem] border border-white/10 px-5 py-4 transition hover:bg-white/[0.035]">
+                      <div
+                        key={run.id}
+                        className={`rounded-[1.5rem] border px-5 py-4 transition hover:bg-white/[0.035] ${
+                          run.workflowTemplate === "rfp_response" ? "border-amber-300/20 bg-amber-400/[0.04]" : "border-white/10"
+                        }`}
+                      >
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center justify-between gap-4">
                             <div className="space-y-1">
@@ -160,6 +174,8 @@ export default async function DashboardPage() {
                             <StatusBadge status={run.status} />
                           </div>
                           <p className="text-sm leading-6 text-slate-300">{run.approvalReadyReason}</p>
+                          {run.sourceSummary ? <p className="text-sm leading-6 text-amber-100/80">{run.sourceSummary}</p> : null}
+                          {run.packetSummary ? <p className="text-xs leading-5 text-slate-400">{run.packetSummary}</p> : null}
                           <p className="text-xs leading-5 text-slate-500">{run.quickRiskSummary}</p>
                           <RunActions runId={run.id} allowCancel={canCancelRun(run.status)} />
                         </div>

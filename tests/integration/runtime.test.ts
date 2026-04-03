@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createQueueAdapter, createStorageAdapter } from "@workgate/db";
 
-import { installRuntimeForTests, resetRuntimeForTests, createTask, getRunDetail, saveGitHubSettings, approveRun } from "@/lib/app-service";
+import { installRuntimeForTests, resetRuntimeForTests, createTask, getRunDetail, saveGitHubSettings, approveRun, saveKnowledgeSource } from "@/lib/app-service";
 
 async function configureGitHubApp(allowedRepos: string[] = ["owner/repo"]) {
   await saveGitHubSettings({
@@ -175,6 +175,15 @@ describe("run orchestration", () => {
   });
 
   it("approves an RFP workflow without requiring GitHub writes", async () => {
+    const source = await saveKnowledgeSource({
+      teamId: "team_default",
+      name: "Renewal baseline",
+      sourceType: "markdown",
+      description: "Approved capture themes and pricing guardrails.",
+      content: "# Renewal baseline\n\n- Keep claims grounded.\n- Emphasize implementation speed.",
+      ingestionStatus: "ready"
+    });
+
     const detail = await createTask({
       teamId: "team_default",
       title: "Prepare renewal response",
@@ -183,7 +192,8 @@ describe("run orchestration", () => {
       workflowTemplate: "rfp_response",
       workflowInput: {
         accountName: "Acme Corp renewal",
-        knowledgeSource: "Security questionnaire and pricing notes"
+        knowledgeSource: "Renewal baseline",
+        knowledgeSourceId: source.id
       },
       constraints: ["Do not invent unsupported claims"],
       acceptanceCriteria: ["Run reaches approval gate with proposal artefacts"],

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, CheckCheck, FolderGit2, LibraryBig, Mail, ShieldCheck, Users2 } from "lucide-react";
+import { BarChart3, CheckCheck, FileUp, FolderGit2, LibraryBig, Mail, ShieldCheck, Users2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { activeWorkflowTemplates, teamRoles, workflowTemplates, type ApprovalPolicy, type GitHubAppSettingsView, type KnowledgeSource, type ModelPolicy, type ModelProvider, type Session, type TeamRole, type UsageSummary, type WorkflowTemplateId } from "@workgate/shared";
@@ -213,11 +213,19 @@ export function SettingsStudio({
           byTeam: "Takım dağılımı",
           knowledgeEyebrow: "Knowledge packs",
           knowledgeTitle: "RFP bilgi paketleri",
-          knowledgeDescription: "Aktif takım için reusable knowledge pack kaydet. RFP workflow’u bunları referans olarak kullanabilir.",
+          knowledgeDescription: "Aktif takım için reusable knowledge pack kaydet veya doküman yükle. RFP workflow’u bunları doğrudan referans alabilir.",
+          pasteMode: "Metin ekle",
+          uploadMode: "Dosya yükle",
           packName: "Paket adı",
           packType: "Format",
+          packFile: "Dosya",
+          packFileHint: "Markdown, txt, json, pdf, docx, pptx ve xlsx kabul edilir.",
           packContent: "İçerik",
           savePack: "Pack kaydet",
+          ingestionReady: "Hazır",
+          ingestionFailed: "Hatalı",
+          ingestionProcessing: "İşleniyor",
+          originalFile: "Orijinal dosya",
           membersEyebrow: "Workspace access",
           membersTitle: "Kim hangi takımı görebiliyor",
           membersDescription: "RBAC tablosunun ilk görünümü. Her üyenin workspace rolü ve takım bazlı üyeliği burada okunabilir.",
@@ -295,11 +303,19 @@ export function SettingsStudio({
           byTeam: "Team breakdown",
           knowledgeEyebrow: "Knowledge packs",
           knowledgeTitle: "RFP knowledge packs",
-          knowledgeDescription: "Save reusable knowledge packs for the active team. The RFP workflow can reference them directly.",
+          knowledgeDescription: "Save reusable knowledge packs or upload source documents for the active team. The RFP workflow can reference them directly.",
+          pasteMode: "Paste text",
+          uploadMode: "Upload file",
           packName: "Pack name",
           packType: "Format",
+          packFile: "File",
+          packFileHint: "Accepts markdown, txt, json, pdf, docx, pptx, and xlsx.",
           packContent: "Content",
           savePack: "Save pack",
+          ingestionReady: "Ready",
+          ingestionFailed: "Failed",
+          ingestionProcessing: "Processing",
+          originalFile: "Original file",
           membersEyebrow: "Workspace access",
           membersTitle: "Who can see which team",
           membersDescription: "The first RBAC visibility layer. Read each member's workspace role and team memberships here.",
@@ -355,6 +371,8 @@ export function SettingsStudio({
     description: "",
     content: ""
   });
+  const [knowledgeMode, setKnowledgeMode] = useState<"paste" | "upload">("paste");
+  const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
 
   const [usageFilters, setUsageFilters] = useState<UsageSummary["filters"]>({
     teamId: usage.filters.teamId,
@@ -568,17 +586,39 @@ export function SettingsStudio({
     setIsSavingKnowledge(true);
 
     try {
-      const response = await fetch("/api/knowledge-sources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamId: activeTeamId,
-          name: knowledgeDraft.name,
-          sourceType: knowledgeDraft.sourceType,
-          description: knowledgeDraft.description || null,
-          content: knowledgeDraft.content
-        })
-      });
+      let response: Response;
+
+      if (knowledgeMode === "upload") {
+        if (!knowledgeFile) {
+          throw new Error(locale === "tr" ? "Yüklemek için bir dosya seç." : "Choose a file to upload.");
+        }
+        const formData = new FormData();
+        formData.set("teamId", activeTeamId);
+        formData.set("name", knowledgeDraft.name);
+        if (knowledgeDraft.description.trim()) {
+          formData.set("description", knowledgeDraft.description.trim());
+        }
+        formData.set("file", knowledgeFile);
+        response = await fetch("/api/knowledge-sources", {
+          method: "POST",
+          body: formData
+        });
+      } else {
+        if (!knowledgeDraft.content.trim()) {
+          throw new Error(locale === "tr" ? "Kaydetmek için içerik gir." : "Enter content before saving the knowledge pack.");
+        }
+        response = await fetch("/api/knowledge-sources", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            teamId: activeTeamId,
+            name: knowledgeDraft.name,
+            sourceType: knowledgeDraft.sourceType,
+            description: knowledgeDraft.description || null,
+            content: knowledgeDraft.content
+          })
+        });
+      }
 
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -592,6 +632,7 @@ export function SettingsStudio({
         description: "",
         content: ""
       });
+      setKnowledgeFile(null);
       router.refresh();
     } catch (error) {
       setKnowledgeError(error instanceof Error ? error.message : "Unable to save knowledge source.");
@@ -1275,6 +1316,24 @@ export function SettingsStudio({
         <div className="space-y-6">
           <SectionCard eyebrow={copy.knowledgeEyebrow} title={copy.knowledgeTitle} description={copy.knowledgeDescription} accent="amber">
             <form onSubmit={handleSaveKnowledge} className="space-y-4 rounded-[1.5rem] bg-[#0d1626] px-5 py-5 ring-1 ring-white/6">
+              <div className="inline-flex rounded-full border border-white/10 bg-[#07101d] p-1">
+                {[
+                  { id: "paste", label: copy.pasteMode },
+                  { id: "upload", label: copy.uploadMode }
+                ].map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setKnowledgeMode(mode.id as "paste" | "upload")}
+                    className={[
+                      "rounded-full px-4 py-2 text-xs uppercase tracking-[0.18em] transition",
+                      knowledgeMode === mode.id ? "bg-amber-300 text-stone-950" : "text-slate-400 hover:text-white"
+                    ].join(" ")}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="space-y-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{copy.packName}</span>
@@ -1296,6 +1355,7 @@ export function SettingsStudio({
                       }))
                     }
                     className="w-full rounded-2xl bg-[#07101d] px-4 py-3 text-sm text-white outline-none ring-1 ring-white/8 transition focus:ring-cyan-300/50"
+                    disabled={knowledgeMode === "upload"}
                   >
                     <option value="markdown">Markdown</option>
                     <option value="text">Text</option>
@@ -1312,15 +1372,37 @@ export function SettingsStudio({
                   placeholder="Internal positioning, approved claims, and response constraints."
                 />
               </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{copy.packContent}</span>
-                <textarea
-                  value={knowledgeDraft.content}
-                  onChange={(event) => setKnowledgeDraft((current) => ({ ...current, content: event.target.value }))}
-                  className="min-h-40 w-full rounded-[1.4rem] bg-[#07101d] px-4 py-3 text-sm leading-6 text-white outline-none ring-1 ring-white/8 transition focus:ring-cyan-300/50"
-                  placeholder="Paste reusable proposal context, differentiators, pricing guardrails, or customer-approved language."
-                />
-              </label>
+              {knowledgeMode === "paste" ? (
+                <label className="space-y-2">
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{copy.packContent}</span>
+                  <textarea
+                    value={knowledgeDraft.content}
+                    onChange={(event) => setKnowledgeDraft((current) => ({ ...current, content: event.target.value }))}
+                    className="min-h-40 w-full rounded-[1.4rem] bg-[#07101d] px-4 py-3 text-sm leading-6 text-white outline-none ring-1 ring-white/8 transition focus:ring-cyan-300/50"
+                    placeholder="Paste reusable proposal context, differentiators, pricing guardrails, or customer-approved language."
+                  />
+                </label>
+              ) : (
+                <label className="space-y-2">
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{copy.packFile}</span>
+                  <div className="rounded-[1.4rem] bg-[#07101d] px-4 py-4 ring-1 ring-white/8">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-950">
+                        <FileUp className="h-3.5 w-3.5" />
+                        {copy.uploadMode}
+                        <input
+                          type="file"
+                          className="sr-only"
+                          accept=".md,.txt,.json,.pdf,.docx,.pptx,.xlsx"
+                          onChange={(event) => setKnowledgeFile(event.target.files?.[0] ?? null)}
+                        />
+                      </label>
+                      <div className="text-sm text-slate-300">{knowledgeFile?.name ?? copy.packFileHint}</div>
+                    </div>
+                    <p className="mt-3 text-xs leading-6 text-slate-500">{copy.packFileHint}</p>
+                  </div>
+                </label>
+              )}
               <div className="flex items-center justify-between gap-4">
                 <div className="text-sm">
                   {knowledgeError ? <span className="text-rose-300">{knowledgeError}</span> : knowledgeMessage ? <span className="text-emerald-300">{knowledgeMessage}</span> : <span className="text-slate-400">{activeTeam?.name ?? messages.common.none}</span>}
@@ -1343,11 +1425,34 @@ export function SettingsStudio({
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <div className="text-sm font-medium text-white">{source.name}</div>
-                        <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{source.sourceType}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+                          <span>{source.sourceType}</span>
+                          <span
+                            className={`rounded-full border px-2 py-1 ${
+                              source.ingestionStatus === "ready"
+                                ? "border-emerald-300/20 text-emerald-200"
+                                : source.ingestionStatus === "failed"
+                                  ? "border-rose-300/20 text-rose-200"
+                                  : "border-amber-300/20 text-amber-200"
+                            }`}
+                          >
+                            {source.ingestionStatus === "ready"
+                              ? copy.ingestionReady
+                              : source.ingestionStatus === "failed"
+                                ? copy.ingestionFailed
+                                : copy.ingestionProcessing}
+                          </span>
+                        </div>
                       </div>
                       <LibraryBig className="h-4 w-4 text-cyan-200" />
                     </div>
                     {source.description ? <p className="mt-3 text-sm leading-6 text-slate-400">{source.description}</p> : null}
+                    {source.originalFilename ? (
+                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                        {copy.originalFile}: {source.originalFilename}
+                      </p>
+                    ) : null}
+                    {source.ingestionNotes ? <p className="mt-2 text-xs leading-5 text-slate-500">{source.ingestionNotes}</p> : null}
                   </div>
                 ))
               )}

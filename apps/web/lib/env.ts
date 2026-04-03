@@ -32,6 +32,8 @@ export function getAppEnv() {
     executionBackend: process.env.WORKGATE_EXECUTION_BACKEND === "remote_sandbox" ? "remote_sandbox" : "local",
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? null,
     supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY ?? null,
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? null,
+    supabaseStorageBucket: process.env.WORKGATE_SUPABASE_STORAGE_BUCKET ?? "workgate-knowledge",
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? "http://localhost:3000"
   };
 }

@@ -10,6 +10,7 @@ import { formatRelativeTime } from "@/lib/format";
 import { getArtifactTypeLabel, getMessages, getRoleLabel } from "@/lib/i18n";
 import { getServerLocale } from "@/lib/i18n-server";
 import { getWorkflowPresentation } from "@/lib/workflows";
+import { buildReleasePacketView } from "@workgate/runtime";
 import { canCancelRun, canDeleteRun, canRetryRun } from "@workgate/shared";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,6 +21,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const messages = getMessages(locale);
   const allowFailedOnlyRetry = canRetryFailedOnly(detail);
   const workflow = getWorkflowPresentation(detail.run.workflowTemplate, locale);
+  const releasePacket = buildReleasePacketView(detail);
   const totalInputTokens = detail.steps.reduce((sum, step) => sum + (step.inputTokens ?? 0), 0);
   const totalOutputTokens = detail.steps.reduce((sum, step) => sum + (step.outputTokens ?? 0), 0);
   const totalCost = detail.steps.reduce((sum, step) => sum + (step.costUsd ?? 0), 0);
@@ -86,6 +88,58 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             </section>
 
             <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-6">
+              {releasePacket ? (
+                <div className="mb-6 rounded-[1.5rem] border border-amber-300/20 bg-amber-300/[0.06] px-5 py-5">
+                  <div className="space-y-2">
+                    <div className="text-[0.72rem] uppercase tracking-[0.18em] text-amber-100/80">Release packet</div>
+                    <h3 className="text-2xl font-semibold tracking-[-0.04em] text-white">{releasePacket.title}</h3>
+                    <p className="text-sm leading-7 text-slate-300">{releasePacket.packetSummary}</p>
+                  </div>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-[1.2rem] bg-black/20 px-4 py-4">
+                      <div className="text-[0.7rem] uppercase tracking-[0.16em] text-slate-400">{workflow.targetPrimaryLabel}</div>
+                      <div className="mt-2 text-sm text-white">{releasePacket.accountName}</div>
+                    </div>
+                    <div className="rounded-[1.2rem] bg-black/20 px-4 py-4">
+                      <div className="text-[0.7rem] uppercase tracking-[0.16em] text-slate-400">{workflow.targetSecondaryLabel}</div>
+                      <div className="mt-2 text-sm text-white">{releasePacket.knowledgeSourceSummary}</div>
+                    </div>
+                  </div>
+                  {releasePacket.checklistItems.length > 0 ? (
+                    <div className="mt-4 space-y-2">
+                      <div className="text-[0.7rem] uppercase tracking-[0.16em] text-slate-400">Approval checklist</div>
+                      <div className="grid gap-2">
+                        {releasePacket.checklistItems.map((item) => (
+                          <div key={item.id} className="flex items-start gap-3 rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
+                            <span className={`mt-0.5 inline-flex rounded-full px-2 py-1 text-[0.65rem] uppercase tracking-[0.14em] ${item.completed ? "bg-emerald-300/15 text-emerald-200" : "bg-amber-300/15 text-amber-200"}`}>
+                              {item.completed ? (locale === "tr" ? "Hazır" : "Ready") : (locale === "tr" ? "Bekliyor" : "Pending")}
+                            </span>
+                            <span>{item.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <a
+                      href={`/api/runs/${detail.run.id}/release-packet/print`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full bg-amber-300 px-5 py-3 text-sm font-medium text-stone-950 transition hover:bg-amber-200"
+                    >
+                      Print / PDF export
+                    </a>
+                    <a
+                      href={`/api/runs/${detail.run.id}/release-packet`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full border border-white/15 px-5 py-3 text-sm text-slate-100 transition hover:bg-white/5"
+                    >
+                      Structured packet JSON
+                    </a>
+                  </div>
+                </div>
+              ) : null}
               <div className="space-y-1">
                 <div className="text-[0.72rem] uppercase tracking-[0.2em] text-cyan-200/70">{messages.runDetail.artefacts}</div>
                 <h2 className="text-2xl font-semibold tracking-[-0.04em] text-white">{messages.runDetail.generatedOutputs}</h2>

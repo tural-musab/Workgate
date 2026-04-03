@@ -7,6 +7,8 @@ import {
   type EngineerPlan,
   type GitHubAppSettings,
   type GitHubRepoConnection,
+  type ReleasePacketChecklistItem,
+  type ReleasePacketView,
   type RetryMode,
   type RunDetail,
   type RunRecord,
@@ -226,6 +228,39 @@ function parseRouterStepOutput(output?: string | null): ResolvedTaskRoute | unde
     ...(provider ? { provider: provider as NonNullable<ResolvedTaskRoute["provider"]> } : {}),
     ...(model ? { model } : {})
   };
+}
+
+function slugifyExportFilename(input: string) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function summarizeBody(input?: string | null) {
+  if (!input) return null;
+  const normalized = input.trim();
+  if (!normalized) return null;
+  const [firstParagraph] = normalized.split(/\n\s*\n/, 1);
+  return (firstParagraph ?? normalized).slice(0, 220);
+}
+
+function checklistItemsFromArtifact(content?: string | null): ReleasePacketChecklistItem[] {
+  if (!content) return [];
+  return content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const completed = !/\[\s\]|pending|todo/i.test(line);
+      const label = line.replace(/^[-*]\s*/, "").replace(/^\[(?:x|X|\s)\]\s*/, "").trim();
+      return {
+        id: `check-${index + 1}`,
+        label: label || `Checklist item ${index + 1}`,
+        completed
+      };
+    });
 }
 
 export function extractDeliverableFromEvents(detail: RunDetail, role: AgentRole): AgentDeliverable | null {
@@ -776,13 +811,58 @@ export async function stopWorker(runtime: RuntimeServices) {
   runtime.workerStarted = false;
 }
 
+export function buildReleasePacketView(detail: RunDetail): ReleasePacketView | null {
+  if (detail.run.workflowTemplate !== "rfp_response") {
+    return null;
+  }
+
+  const artifactOrder: ArtifactType[] = ["research_note", "prd", "architecture_memo", "review_report", "approval_checklist", "release_packet"];
+  const sections = artifactOrder
+    .map((artifactType) => detail.artifacts.find((artifact) => artifact.artifactType === artifactType))
+    .filter((artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact))
+    .map((artifact) => ({
+      artifactType: artifact.artifactType,
+      title: artifact.title,
+      body: artifact.content
+    }));
+
+  const checklistArtifact = detail.artifacts.find((artifact) => artifact.artifactType === "approval_checklist");
+  const packetArtifact = detail.artifacts.find((artifact) => artifact.artifactType === "release_packet");
+  const reviewArtifact = detail.artifacts.find((artifact) => artifact.artifactType === "review_report");
+  const workflowInput = detail.task.workflowInput as {
+    accountName?: string;
+    knowledgeSource?: string;
+  };
+  const accountName = workflowInput.accountName ?? detail.task.targetRepo;
+  const knowledgeSourceSummary = workflowInput.knowledgeSource ?? detail.task.targetBranch;
+  const packetSummary =
+    summarizeBody(packetArtifact?.content) ??
+    summarizeBody(reviewArtifact?.content) ??
+    detail.run.finalSummary ??
+    "Proposal packet is ready for operator review.";
+
+  return {
+    runId: detail.run.id,
+    title: detail.run.title,
+    workflowTemplate: "rfp_response",
+    accountName,
+    knowledgeSourceSummary,
+    finalSummary: detail.run.finalSummary,
+    packetSummary,
+    exportFilename: `${slugifyExportFilename(detail.run.title || "proposal-packet")}.pdf`,
+    checklistItems: checklistItemsFromArtifact(checklistArtifact?.content),
+    sections
+  };
+}
+
 export function buildApprovalQueueItem(detail: RunDetail): ApprovalQueueItem {
   const completedSteps = detail.steps.filter((step) => step.status === "completed");
   const lastCompletedRole = completedSteps.length > 0 ? completedSteps[completedSteps.length - 1]?.role ?? null : null;
   const reviewArtifact = detail.artifacts.find((artifact) => artifact.artifactType === "review_report");
+  const releasePacket = buildReleasePacketView(detail);
   const readyReason =
     detail.run.workflowTemplate === "rfp_response"
-      ? "Proposal packet and approval checklist are ready."
+      ? "Proposal packet, approval checklist, and print-ready export are ready."
       : "Diff preview, review report, and test report are ready.";
   const latestEventAt = detail.events.length > 0 ? detail.events[detail.events.length - 1]?.createdAt ?? null : null;
 
@@ -791,7 +871,9 @@ export function buildApprovalQueueItem(detail: RunDetail): ApprovalQueueItem {
     teamName: null,
     lastCompletedRole,
     approvalReadyReason: readyReason,
-    quickRiskSummary: reviewArtifact?.content.slice(0, 160) ?? "No review summary captured yet.",
+    quickRiskSummary: reviewArtifact?.content.slice(0, 160) ?? releasePacket?.packetSummary ?? "No review summary captured yet.",
+    packetSummary: releasePacket?.packetSummary ?? null,
+    sourceSummary: releasePacket?.knowledgeSourceSummary ?? null,
     latestEventAt
   };
 }

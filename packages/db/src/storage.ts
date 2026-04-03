@@ -627,8 +627,12 @@ class MemoryStorage implements StorageAdapter {
       name: input.name,
       sourceType: input.sourceType,
       description: input.description ?? null,
-      storagePath: null,
-      content: input.content,
+      storagePath: input.storagePath ?? null,
+      originalFilename: input.originalFilename ?? null,
+      mimeType: input.mimeType ?? null,
+      content: input.content ?? null,
+      ingestionStatus: input.ingestionStatus ?? "ready",
+      ingestionNotes: input.ingestionNotes ?? null,
       createdBy,
       createdAt: nowIso()
     };
@@ -1391,7 +1395,11 @@ class PostgresStorage implements StorageAdapter {
         sourceType: row.sourceType as KnowledgeSource["sourceType"],
         description: row.description,
         storagePath: row.storagePath,
+        originalFilename: row.originalFilename,
+        mimeType: row.mimeType,
         content: row.content,
+        ingestionStatus: row.ingestionStatus as KnowledgeSource["ingestionStatus"],
+        ingestionNotes: row.ingestionNotes,
         createdBy: row.createdBy,
         createdAt: row.createdAt.toISOString()
       }));
@@ -1408,8 +1416,12 @@ class PostgresStorage implements StorageAdapter {
       name: input.name,
       sourceType: input.sourceType,
       description: input.description ?? null,
-      storagePath: null,
-      content: input.content,
+      storagePath: input.storagePath ?? null,
+      originalFilename: input.originalFilename ?? null,
+      mimeType: input.mimeType ?? null,
+      content: input.content ?? null,
+      ingestionStatus: input.ingestionStatus ?? "ready",
+      ingestionNotes: input.ingestionNotes ?? null,
       createdBy,
       createdAt
     });
@@ -1420,8 +1432,12 @@ class PostgresStorage implements StorageAdapter {
       name: input.name,
       sourceType: input.sourceType,
       description: input.description ?? null,
-      storagePath: null,
-      content: input.content,
+      storagePath: input.storagePath ?? null,
+      originalFilename: input.originalFilename ?? null,
+      mimeType: input.mimeType ?? null,
+      content: input.content ?? null,
+      ingestionStatus: input.ingestionStatus ?? "ready",
+      ingestionNotes: input.ingestionNotes ?? null,
       createdBy,
       createdAt: createdAt.toISOString()
     };
