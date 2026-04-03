@@ -340,6 +340,11 @@ export const TeamWorkflowAccessRecordSchema = z.object({
   createdAt: z.string()
 });
 
+export const TeamWorkflowAccessInputSchema = z.object({
+  teamId: z.string().min(1),
+  allowedWorkflows: z.array(z.enum(workflowTemplates)).default([])
+});
+
 export const SessionTeamSchema = TeamRecordSchema.extend({
   teamRole: z.enum(teamRoles)
 });
@@ -506,6 +511,7 @@ export type TeamRecord = z.infer<typeof TeamRecordSchema>;
 export type WorkspaceMemberRecord = z.infer<typeof WorkspaceMemberRecordSchema>;
 export type TeamMembershipRecord = z.infer<typeof TeamMembershipRecordSchema>;
 export type TeamWorkflowAccessRecord = z.infer<typeof TeamWorkflowAccessRecordSchema>;
+export type TeamWorkflowAccessInput = z.infer<typeof TeamWorkflowAccessInputSchema>;
 export type SessionTeam = z.infer<typeof SessionTeamSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>;

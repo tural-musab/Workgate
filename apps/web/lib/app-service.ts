@@ -29,6 +29,7 @@ import {
   RetryRunPayloadSchema,
   SaveApprovalPolicySchema,
   TeamManagementSchema,
+  TeamWorkflowAccessInputSchema,
   UsageFiltersSchema,
   WorkspaceMemberInputSchema,
   canCancelRun,
@@ -409,12 +410,49 @@ export async function listTeamsView(session?: Session) {
   return getRuntime().storage.listTeams(effectiveSession.workspace.id);
 }
 
+export async function listTeamSettingsView(session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  const runtime = getRuntime();
+  const teams = await runtime.storage.listTeams(effectiveSession.workspace.id);
+  const workflows = await Promise.all(
+    teams.map(async (team) => ({
+      teamId: team.id,
+      allowedWorkflows: await runtime.storage.getTeamWorkflowAccess(team.id)
+    }))
+  );
+  const workflowMap = new Map(workflows.map((item) => [item.teamId, item.allowedWorkflows]));
+  return teams.map((team) => ({
+    ...team,
+    allowedWorkflows: workflowMap.get(team.id) ?? []
+  }));
+}
+
 export async function saveTeam(input: unknown, session?: Session) {
   const effectiveSession = await getEffectiveSession(session);
   if (!canManageWorkspace(effectiveSession.workspaceRole)) {
     throw new Error("Only workspace admins can manage teams.");
   }
   return getRuntime().storage.createTeam(effectiveSession.workspace.id, TeamManagementSchema.parse(input));
+}
+
+export async function saveTeamWorkflowAccess(input: unknown, session?: Session) {
+  const effectiveSession = await getEffectiveSession(session);
+  if (!canManageWorkspace(effectiveSession.workspaceRole)) {
+    throw new Error("Only workspace admins can manage team workflow access.");
+  }
+
+  const payload = TeamWorkflowAccessInputSchema.parse(input);
+  const runtime = getRuntime();
+  const teams = await runtime.storage.listTeams(effectiveSession.workspace.id);
+  if (!teams.some((team) => team.id === payload.teamId)) {
+    throw new Error("Team not found.");
+  }
+
+  await runtime.storage.saveTeamWorkflowAccess(payload.teamId, payload.allowedWorkflows);
+  return {
+    teamId: payload.teamId,
+    allowedWorkflows: await runtime.storage.getTeamWorkflowAccess(payload.teamId)
+  };
 }
 
 export async function listWorkspaceMembersView(session?: Session) {
@@ -762,14 +800,20 @@ export async function getRuntimeInfo() {
 
 export async function saveGitHubSettingsFromPayload(payload: unknown, session?: Session) {
   const data = (payload ?? {}) as Record<string, unknown>;
+  const allowedRepos = Array.isArray(data.allowedRepos) ? data.allowedRepos.filter((item): item is string => typeof item === "string") : [];
+  const effectiveSession = await getEffectiveSession(session);
+  const teamId = typeof data.teamId === "string" ? data.teamId : (resolveActiveTeam(effectiveSession)?.id ?? null);
+  const existing = teamId ? await getRuntime().storage.getGitHubSettings(teamId) : null;
+  const existingPrivateKeyPem = existing ? getRuntime().resolveGitHubToken?.(existing.privateKeyEncrypted) ?? null : null;
+  const privateKeyPem =
+    typeof data.privateKeyPem === "string" && data.privateKeyPem.trim().length > 0 ? data.privateKeyPem : existingPrivateKeyPem;
+
   const parsed = GitHubAppSettingsSchema.parse({
     appId: data.appId,
     installationId: data.installationId,
-    privateKeyPem: data.privateKeyPem,
+    privateKeyPem,
     ...(typeof data.appSlug === "string" && data.appSlug ? { appSlug: data.appSlug } : {})
   });
-  const allowedRepos = Array.isArray(data.allowedRepos) ? data.allowedRepos.filter((item): item is string => typeof item === "string") : [];
-  const teamId = typeof data.teamId === "string" ? data.teamId : null;
   return saveGitHubSettings({ ...parsed, allowedRepos, teamId }, session);
 }
 
